@@ -206,3 +206,41 @@ def cap_cat_codes(mask, max_bins, *mats):
         M[:, mask] = sub
         out.append(M)
     return out
+
+
+def subsample_idx(y, n_max, task_type, seed=SEED):
+    """Deterministic subsample of <= n_max rows (stratified, every class keeps >= min(count, 5) rows)."""
+    n = len(y)
+    if n <= n_max:
+        return np.arange(n)
+    rng = np.random.RandomState(seed)
+    if task_type != "classification":
+        return np.sort(rng.choice(n, n_max, replace=False))
+    out = []
+    for c in np.unique(y):
+        idx = np.where(y == c)[0]
+        m = int(min(len(idx), max(min(len(idx), 5), round(len(idx) * n_max / n))))
+        out.append(rng.choice(idx, m, replace=False))
+    return np.sort(np.concatenate(out))
+
+
+class FitTimer:
+    """Per-fit cost guard. Learns seconds-per-(row x unit) from observed fits and predicts the next one.
+
+    Used before every expensive fit: `if not timer.affordable(kind, n_rows, units, budget, reserve)`.
+    """
+
+    def __init__(self):
+        self.rate = {}
+
+    def observe(self, kind, n_rows, units, seconds):
+        r = seconds / max(1.0, n_rows * units)
+        self.rate[kind] = max(self.rate.get(kind, 0.0), r)
+
+    def estimate(self, kind, n_rows, units):
+        r = self.rate.get(kind)
+        return None if r is None else r * n_rows * units
+
+    def affordable(self, kind, n_rows, units, budget, reserve, factor=1.3):
+        est = self.estimate(kind, n_rows, units)
+        return est is None or budget.remaining() - reserve > factor * est

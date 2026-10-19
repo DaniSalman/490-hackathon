@@ -12,7 +12,13 @@ import warnings
 import numpy as np
 import pandas as pd
 
-SENTINELS = {"", "?", "na", "n/a", "nan", "null", "none", "-", "--", "missing", "#n/a", "nil", "unknown?"}
+# Tokens that mean "missing" ONLY inside a mostly-numeric column (e.g. "?" in a numeric UCI column).
+# Categorical values are never altered except that empty / whitespace-only strings become missing:
+# literal categories such as "none", "-", "unknown" or "missing" survive (credit-g own_telephone = "none").
+NUMERIC_NA_TOKENS = {"?", "na", "n/a", "nan", "null", "none", "-", "--", ".", "missing", "#n/a", "nil",
+                     "unknown", "unknown?", "inf", "-inf"}
+# Reported (never altered) by the profiler as "suspected missing" in string columns.
+SUSPECT_NA_TOKENS = {"?", "na", "n/a", "nan", "null", "#n/a", "missing"}
 BOOL_TRUE = {"yes", "true", "y", "t", "1"}
 BOOL_FALSE = {"no", "false", "n", "f", "0"}
 _ID_EXACT = re.compile(r"^(id|uuid|guid|udi|index|idx|rowid|row_id|row|unnamed: ?0|key|record_id|sample_id)$", re.I)
@@ -31,13 +37,13 @@ def _is_stringlike(s):
 
 
 def clean_strings(s):
-    """Object/str series -> python-object series of stripped strings with sentinels as NaN."""
+    """Object/str series -> python-object series of stripped strings; empty/blank strings -> NaN."""
     v = s.astype(object)
     mask = v.notna()
     out = pd.Series(np.full(len(v), np.nan, dtype=object), index=s.index)
     if mask.any():
         st = v[mask].astype(str).str.strip()
-        st = st.where(~st.str.lower().isin(SENTINELS), np.nan)
+        st = st.where(st != "", np.nan)
         out[mask] = st
     return out
 
@@ -118,8 +124,9 @@ def infer_column_type(s, name=""):
     low = set(v.str.lower().unique()[:5])
     if nun == 2 and low <= (BOOL_TRUE | BOOL_FALSE) and len(low & BOOL_TRUE) == 1:
         return "boolean"
-    num = pd.to_numeric(v.str.replace(r"[,$%\s€£]", "", regex=True), errors="coerce")
-    if num.notna().mean() >= 0.95:
+    vv = v[~v.str.lower().isin(NUMERIC_NA_TOKENS)]          # "?" etc. do not block numeric detection
+    num = pd.to_numeric(vv.str.replace(r"[,$%\s€£]", "", regex=True), errors="coerce")
+    if len(vv) >= max(3, 0.5 * len(v)) and num.notna().mean() >= 0.95 and num.nunique() > 1:
         if is_id_name(name) and uratio > 0.95:
             return "id"
         return "numeric"
@@ -353,11 +360,25 @@ def ordinal_encode(cat_tr, cat_te, max_levels=250, min_count=1):
     return A, B
 
 
-def onehot_encode(cat_tr, cat_te, max_levels=20, min_count=2, scale=1.0):
-    """Dense one-hot of the most frequent levels (others share an implicit all-zero row)."""
+def max_encoded_features(p_before):
+    """Cost guard: encoded width may not exceed max(5 p, p + 200) (p = raw feature count)."""
+    return int(max(5 * p_before, p_before + 200))
+
+
+def onehot_encode(cat_tr, cat_te, max_levels=20, min_count=2, scale=1.0, max_total=None):
+    """Dense one-hot of the most frequent levels (others share an implicit all-zero row).
+
+    max_total: cost guard on the number of dummy columns; max_levels is halved until it fits.
+    """
     cols_a, cols_b, names = [], [], []
+    vcs = {col: cat_tr[col].value_counts() for col in cat_tr.columns}
+    if max_total is not None:
+        def width(L):
+            return sum(min(int((vc >= min_count).sum()), L) for vc in vcs.values())
+        while max_levels > 1 and width(max_levels) > max_total:
+            max_levels = max(1, max_levels // 2)
     for col in cat_tr.columns:
-        vc = cat_tr[col].value_counts()
+        vc = vcs[col]
         levels = list(vc[vc >= min_count].index[:max_levels])
         if len(levels) == len(vc) and len(levels) == 2:
             levels = levels[:1]       # binary -> single indicator

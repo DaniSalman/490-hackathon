@@ -8,7 +8,8 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from cleaning import _is_stringlike, find_duplicate_columns, infer_column_type, is_id_name, modelling_type
+from cleaning import (SUSPECT_NA_TOKENS, _is_stringlike, find_duplicate_columns, infer_column_type, is_id_name,
+                      modelling_type)
 
 SCHEMA_VERSION = "1.0"
 
@@ -42,6 +43,19 @@ def _top_values(s, k=5):
             for v, c in vc.items()]
 
 
+def _suspect_counts(s):
+    """(blank/whitespace-only strings, blank + NA-like tokens) in a string column; (0, 0) otherwise."""
+    if not _is_stringlike(s):
+        return 0, 0
+    v = s.dropna().astype(str)
+    if v.empty:
+        return 0, 0
+    st = v.str.strip()
+    blank = int((st == "").sum())
+    tok = int(st.str.lower().isin(SUSPECT_NA_TOKENS).sum())
+    return blank, blank + tok
+
+
 def build_profile(task, prepared_info=None):
     df = task.train_df
     test = task.test_df
@@ -51,6 +65,7 @@ def build_profile(task, prepared_info=None):
     dups = find_duplicate_columns(df[feature_cols]) if feature_cols else {}
     col_types = {"numeric": 0, "categorical": 0, "boolean": 0, "datetime": 0, "text": 0, "id": 0, "constant": 0}
     cols, constant, idlike, high_missing, high_card, dt_cols = [], [], [], [], [], []
+    blank_tot, suspect_tot = [0], [0]
     for c in df.columns:
         s = df[c]
         n_missing = int(s.isna().sum())
@@ -66,6 +81,13 @@ def build_profile(task, prepared_info=None):
                "is_constant": bool(s.nunique(dropna=False) <= 1),
                "is_id_like": bool(inferred == "id" or (role == "id")),
                "duplicate_of": dups.get(c)}
+        # blank / whitespace-only strings and NA-like tokens: reported only (pandas count above is unchanged)
+        n_blank, n_suspect = _suspect_counts(s)
+        rec["blank_string_count"] = n_blank
+        rec["suspected_missing"] = n_suspect
+        rec["n_missing_incl_suspected"] = n_missing + n_suspect
+        blank_tot[0] += n_blank if role == "feature" else 0
+        suspect_tot[0] += n_suspect if role == "feature" else 0
         if role == "id":
             col_types["id"] += 1
             idlike.append(c)
@@ -113,6 +135,9 @@ def build_profile(task, prepared_info=None):
         "n_features": int(len([c for c in feature_cols if c != task.id_column])),
         "n_duplicate_rows": int(df.duplicated().sum()),
         "total_missing_cells": total_missing,
+        "total_blank_string_cells": int(blank_tot[0]),
+        "total_suspected_missing_cells": int(suspect_tot[0]),
+        "total_missing_cells_incl_suspected": int(total_missing + suspect_tot[0]),
         "missing_cell_ratio": _r(total_missing / max(1, n * max(1, len(feature_cols)))),
         "n_columns_with_missing": int((df[feature_cols].isna().sum() > 0).sum()) if feature_cols else 0,
         "column_type_counts": col_types,
