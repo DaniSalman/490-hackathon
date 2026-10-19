@@ -6,3 +6,5 @@ venv/
 validation/data/
 validation/cache/
 .ipynb_checkpoints/
+dev_data/
+runs/
