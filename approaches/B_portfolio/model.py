@@ -1,28 +1,34 @@
-"""Approach B -- time-budgeted AutoML-style portfolio + greedy ensemble selection.
+"""Approach B -- AutoML-style portfolio + greedy ensemble selection, with a DETERMINISTIC candidate plan.
 
-supervised : a diverse portfolio (2-3 HistGB configs, ExtraTrees, RandomForest, linear, kNN) evaluated with
-             the SAME K folds (out-of-fold predictions stored); candidates are run cheapest/most-promising
-             first and skipped when their projected cost exceeds the remaining budget. Final predictor =
-             Caruana et al. (2004) greedy forward ensemble selection with replacement on the OOF
-             predictions (macro-F1 / RMSE), test predictions = weighted average of fold-bagged test preds.
-             Classification ends with OOF-tuned class weights for macro-F1; regression tries raw and
-             log1p targets as separate candidates.
-clustering : preprocessing variants (std / log+std / PCA-whitened) x algorithms (KMeans, GMM, Ward,
-             spectral); all forced to k clusters; the CONSENSUS partition (medoid by mean pairwise ARI)
-             is returned, ties broken by silhouette.
+supervised : a quick HistGB on <= 5k rows is written first (anytime + cost probe). The portfolio (HistGB
+             configs, linear, ExtraTrees, RandomForest, kNN) is decided from the data size/shape only, so the
+             same model set is used on any CPU; the wall clock is used only as a safety abort. All candidates
+             share the SAME K folds; candidates are added in order and the search stops when the last one
+             improved the ensemble's OOF score by < 0.002. Final predictor = Caruana et al. (2004) greedy
+             forward selection with replacement on OOF predictions (macro-F1 / R2); test = weighted average of
+             fold-bagged test predictions. Linear members are clipped to the training target range (log space
+             when log1p) and are excluded for test rows outside the training feature range.
+             Classification ends with OOF-tuned class weights for macro-F1; regression tries raw and log1p.
+clustering : group-aware sparse k-means first acts as a relevance filter (clearly irrelevant features dropped
+             from EVERY view; a sparse-weighted view is added); then preprocessing views x algorithms (KMeans,
+             GMM, Ward, spectral), all forced to k clusters; the CONSENSUS partition (medoid by mean pairwise
+             ARI) is returned, ties broken by silhouette.
 """
 import time
 import warnings
 
 import numpy as np
 
-from cleaning import encode_classes, encode_regression_target, numeric_dense, onehot_encode, ordinal_encode, prepare
-from utils import (SEED, align_proba, choose_k_silhouette, ensure_k_labels, get_n_jobs, hgb_wide_params, cap_cat_codes, log_loss,
-                   macro_f1,
-                   make_folds, r2, relabel_contiguous, rmse, tune_class_weights)
+from cleaning import (encode_classes, encode_regression_target, max_encoded_features, numeric_dense, onehot_encode,
+                      ordinal_encode, prepare)
+from utils import (SEED, FitTimer, align_proba, cap_cat_codes, choose_k_silhouette, ensure_k_labels, get_n_jobs,
+                   hgb_wide_params, log_loss, macro_f1, make_folds, r2, relabel_contiguous, rmse, subsample_idx,
+                   tune_class_weights)
 
 warnings.filterwarnings("ignore")
 RESERVE = 5.0
+MIN_GAIN = 0.002       # stop adding candidates when the ensemble OOF score improves less than this
+CORE = 3               # candidates always evaluated before the stopping rule applies
 
 
 def solve(task, budget, emit, log):
@@ -43,6 +49,7 @@ def solve(task, budget, emit, log):
 class Views:
     def __init__(self, prep, keep):
         self.prep, self.keep, self._c = prep, keep, {}
+        self.p_raw = prep.num_tr.shape[1] + prep.cat_tr.shape[1]
 
     def tree(self):
         if "tree" not in self._c:
@@ -63,7 +70,8 @@ class Views:
             An, Bn = numeric_dense(p.num_tr, p.num_te, indicators=True, log_skewed=False, scale=False)
             Ac, Bc = ordinal_encode(p.cat_tr, p.cat_te, max_levels=250)
             Ac, Bc = np.nan_to_num(Ac, nan=-1.0), np.nan_to_num(Bc, nan=-1.0)
-            Oa, Ob, _ = onehot_encode(p.cat_tr, p.cat_te, max_levels=8, min_count=5)
+            cap = max(0, max_encoded_features(self.p_raw) - An.shape[1] - Ac.shape[1])
+            Oa, Ob, _ = onehot_encode(p.cat_tr, p.cat_te, max_levels=8, min_count=5, max_total=cap)
             self._c["forest"] = (np.hstack([An, Ac, Oa])[self.keep], np.hstack([Bn, Bc, Ob]))
         return self._c["forest"]
 
@@ -71,9 +79,23 @@ class Views:
         if "linear" not in self._c:
             p = self.prep
             An, Bn = numeric_dense(p.num_tr, p.num_te, indicators=True, log_skewed=True, scale=True)
-            Oa, Ob, _ = onehot_encode(p.cat_tr, p.cat_te, max_levels=40, min_count=3)
+            cap = max(1, max_encoded_features(self.p_raw) - An.shape[1])
+            Oa, Ob, _ = onehot_encode(p.cat_tr, p.cat_te, max_levels=40, min_count=3, max_total=cap)
             self._c["linear"] = (np.hstack([An, Oa])[self.keep], np.hstack([Bn, Ob]))
+            # test rows outside the training range of any numeric feature (linear models extrapolate there)
+            k = p.num_tr.shape[1]
+            if k:
+                lo, hi = An[self.keep][:, :k].min(0), An[self.keep][:, :k].max(0)
+                span = hi - lo
+                Z = Bn[:, :k]
+                self._c["ood"] = ((Z < lo - 0.1 * span) | (Z > hi + 0.1 * span)).any(1)
+            else:
+                self._c["ood"] = np.zeros(len(Bn), bool)
         return self._c["linear"]
+
+    def out_of_range(self):
+        self.linear()
+        return self._c["ood"]
 
 
 def _capped_balanced(counts, cap=25.0):
@@ -84,7 +106,7 @@ def _capped_balanced(counts, cap=25.0):
 
 
 def _portfolio(kind, n, p_lin, p_tree, cw, nj):
-    """List of (name, view, factory, relative_cost). Ordered by prior usefulness / cost."""
+    """Deterministic list of (name, view, factory, relative_cost), decided by data size/shape only."""
     from sklearn.ensemble import (ExtraTreesClassifier, ExtraTreesRegressor, HistGradientBoostingClassifier,
                                   HistGradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor)
     from sklearn.linear_model import LogisticRegression, RidgeCV
@@ -92,22 +114,28 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj):
     clf = kind == "classification"
     H = HistGradientBoostingClassifier if clf else HistGradientBoostingRegressor
     extra = {"class_weight": cw} if (clf and cw) else {}
-    small = n < 1000
+    small, large = n < 1000, n > 10000
     hgb_a = (dict(learning_rate=0.05, max_iter=250, max_leaf_nodes=15, min_samples_leaf=max(5, n // 60),
                   l2_regularization=1.0, early_stopping=False) if small else
              dict(learning_rate=0.1, max_iter=600, max_leaf_nodes=31, min_samples_leaf=20, l2_regularization=0.5,
                   early_stopping=True, validation_fraction=0.12, n_iter_no_change=25))
     hgb_b = (dict(learning_rate=0.03, max_iter=400, max_leaf_nodes=7, min_samples_leaf=max(8, n // 40),
                   l2_regularization=3.0, early_stopping=False) if small else
-             dict(learning_rate=0.04, max_iter=1500, max_leaf_nodes=15, min_samples_leaf=40, l2_regularization=3.0,
-                  early_stopping=True, validation_fraction=0.12, n_iter_no_change=40, max_features=0.7))
+             dict(learning_rate=0.06, max_iter=1000, max_leaf_nodes=15, min_samples_leaf=40, l2_regularization=3.0,
+                  early_stopping=True, validation_fraction=0.12, n_iter_no_change=30))
+    try:  # feature subsampling per split (sklearn >= 1.4); silently skipped on older versions
+        H(max_features=0.7)
+        if not small:
+            hgb_b["max_features"] = 0.7
+    except TypeError:
+        pass
     wide = hgb_wide_params(p_tree)
     hgb_a.update(wide)
     hgb_b.update(wide)
     hgb_c = dict(**wide, learning_rate=0.05, max_iter=1000, max_leaf_nodes=63, min_samples_leaf=10, l2_regularization=1.0,
                  early_stopping=True, validation_fraction=0.12, n_iter_no_change=30)
-    trees = 300 if n <= 20000 else 120
-    ms = None if n <= 30000 else min(1.0, 30000 / n)
+    trees = 200 if not large else 100
+    ms = None if not large else min(1.0, 8000 / n)          # bounded forest cost on large n
     out = [("hgb_a", "tree", lambda m: H(random_state=SEED, categorical_features=m, **hgb_a, **extra), 1.0)]
     if clf:
         out.append(("logreg", "linear", lambda m: LogisticRegression(C=1.0, max_iter=1000, **extra), 0.3))
@@ -127,17 +155,21 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj):
     else:
         out.append(("randomforest", "forest", lambda m: RandomForestRegressor(
             trees, max_features=0.5, min_samples_leaf=2, max_samples=ms, n_jobs=nj, random_state=SEED), 2.0))
-    if n <= 30000 and p_lin <= 300:
+    if not large and p_lin <= 300:
         kk = int(np.clip(np.sqrt(n) / 2, 5, 30))
         K = KNeighborsClassifier if clf else KNeighborsRegressor
         out.append(("knn", "linear", lambda m: K(n_neighbors=kk, weights="distance", n_jobs=nj), 0.5))
-    if n >= 2000:
+    if 2000 <= n <= 10000:
         out.append(("hgb_c", "tree", lambda m: H(random_state=SEED, categorical_features=m, **hgb_c, **extra), 1.5))
     return out
 
 
+LINEAR_MEMBERS = ("ridge", "logreg")
+
+
 # --------------------------------------------------------------------------- supervised
 def _supervised(task, prep, budget, emit, log):
+    from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
     clf = task.task_type == "classification"
     if clf:
         y, classes, keep = encode_classes(task.y_train)
@@ -157,9 +189,6 @@ def _supervised(task, prep, budget, emit, log):
     n = len(y)
     views = Views(prep, keep)
     nj = get_n_jobs()
-    folds = make_folds(y, 5 if n <= 30000 else 3, task.task_type)
-    p_lin = views.linear()[0].shape[1]
-    portfolio = _portfolio(task.task_type, n, p_lin, views.tree()[0].shape[1], cw, nj)
 
     transforms = ["raw"]
     if not clf:
@@ -167,21 +196,53 @@ def _supervised(task, prep, budget, emit, log):
         if y.min() >= 0 and np.std(y) > 0 and skew(y) > 0.75:
             transforms.append("log1p")
 
-    results, base_cost, info = [], None, {"candidates": [], "transforms_tried": transforms}
-    best_tf, best_score = "raw", -np.inf
+    # quick model on <= 5k rows -> good answer on disk within seconds, and the per-fit cost probe
+    A, B, mask = views.tree()
+    qi = subsample_idx(y, 5000, task.task_type)
+    t0 = time.perf_counter()
+    q_iters = 100 if (not clf or C == 2) else max(30, 200 // C)
+    H = HistGradientBoostingClassifier if clf else HistGradientBoostingRegressor
+    qm = H(max_iter=q_iters, learning_rate=0.1, categorical_features=mask if mask.any() else None,
+           random_state=SEED, **({"class_weight": cw} if cw else {}))
+    q_log = "log1p" in transforms
+    qm.fit(A[qi], np.log1p(y[qi]) if q_log else y[qi])
+    timer = FitTimer()
+    timer.observe("hgb_iter", len(qi), q_iters, time.perf_counter() - t0)
+    if clf:
+        emit(classes[np.argmax(align_proba(qm, qm.predict_proba(B), C), 1)], "quick_hgb")
+    else:
+        qp = qm.predict(B)
+        emit(_clip(np.expm1(np.clip(qp, None, 60)) if q_log else qp, y), "quick_hgb")
+
+    folds = make_folds(y, 5 if n <= 30000 else 3, task.task_type)
+    p_lin = views.linear()[0].shape[1]
+    portfolio = _portfolio(task.task_type, n, p_lin, A.shape[1], cw, nj)
+    info = {"candidates": [], "transforms_tried": transforms, "portfolio_plan": [p[0] for p in portfolio]}
+    # safety only: if even the anchor HistGB is projected not to fit, keep the quick model
+    n_tr = int(n * (1 - 1 / len(folds)))
+    est_anchor = timer.estimate("hgb_iter", n_tr, 150) * len(folds) * len(transforms) / 3.0
+    if budget.remaining() - RESERVE < est_anchor:
+        log("budget: keeping the quick model (portfolio not affordable)")
+        info.update(model="quick HistGB (budget)")
+        return info
+
+    results, base_cost, best_tf, best_score = [], None, "raw", -np.inf
+    ens_score, stopped = -np.inf, None
     for name, view, make, rel in portfolio:
+        if stopped:
+            break
         for tf in (transforms if name == "hgb_a" else [best_tf]):
             est = (base_cost or 0) * rel
-            if results and budget.remaining() - RESERVE < est * 1.2:
-                log(f"skip {name}: est {est:.1f}s > remaining {budget.remaining():.1f}s")
-                info["candidates"].append({"model": name, "skipped": "budget"})
+            if results and budget.remaining() - RESERVE < est * 1.2:      # safety abort only
+                log(f"safety skip {name}: est {est:.1f}s > remaining {budget.remaining():.1f}s")
+                info["candidates"].append({"model": name, "skipped": "budget_safety"})
                 continue
             res = _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log)
             if res is None:
-                info["candidates"].append({"model": name, "skipped": "aborted_budget"})
+                info["candidates"].append({"model": name, "skipped": "aborted_budget_safety"})
                 continue
             if base_cost is None:
-                base_cost = res["seconds"]
+                base_cost = res["seconds"] / len(transforms)
             results.append(res)
             info["candidates"].append({"model": res["name"], "oof_score": round(res["score"], 6),
                                        "seconds": round(res["seconds"], 2)})
@@ -191,16 +252,33 @@ def _supervised(task, prep, budget, emit, log):
                 if name == "hgb_a":
                     best_tf = tf
                 emit(classes[np.argmax(res["test"], 1)] if clf else _clip(res["test"], y), f"single:{res['name']}")
+        n_models = len({r["name"].split("[")[0] for r in results})
+        if n_models >= CORE and results:
+            _, s_new = _caruana(results, y, clf, C)
+            if s_new - ens_score < MIN_GAIN and n_models > CORE:
+                stopped = f"after {name}: ensemble gain {s_new - ens_score:.4f} < {MIN_GAIN}"
+                log("stop: " + stopped)
+            ens_score = max(ens_score, s_new)
+    info["stopped"] = stopped
     info["target_transform"] = best_tf if not clf else None
     if not results:
-        return {"model": "fallback", "fallback_used": True}
+        info.update(model="quick HistGB (no candidate finished)")
+        return info
 
-    # greedy ensemble selection on OOF
-    weights, ens_score = _caruana(results, y, clf, C)
+    weights, _ = _caruana(results, y, clf, C)
     info["ensemble_weights"] = {results[i]["name"]: round(w, 4) for i, w in enumerate(weights) if w > 0}
     info["model"] = "CaruanaEnsemble(" + ", ".join(f"{k}:{v}" for k, v in info["ensemble_weights"].items()) + ")"
     oof = sum(w * results[i]["oof"] for i, w in enumerate(weights) if w > 0)
     test = sum(w * results[i]["test"] for i, w in enumerate(weights) if w > 0)
+    if not clf:
+        # out-of-range test rows: drop the linear members' share (they extrapolate); renormalise the rest
+        lin = [i for i, w in enumerate(weights) if w > 0 and results[i]["name"].split("[")[0] in LINEAR_MEMBERS]
+        w_lin = sum(weights[i] for i in lin)
+        ood = views.out_of_range()
+        if lin and 0 < w_lin < 1 and ood.any():
+            rest = sum(w * results[i]["test"] for i, w in enumerate(weights) if w > 0 and i not in lin) / (1 - w_lin)
+            test = np.where(ood, rest, test)
+            info["out_of_range_test_rows_without_linear"] = int(ood.sum())
     if clf:
         wcls = np.ones(C)
         wt, f0, f1 = tune_class_weights(oof, y, C)
@@ -225,13 +303,14 @@ def _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log):
         A, B = views.forest() if view == "forest" else views.linear()
         m_arg = None
     n = len(y)
+    linear = name in LINEAR_MEMBERS
     oof = np.zeros((n, C)) if clf else np.zeros(n)
     test = np.zeros((len(B), C)) if clf else np.zeros(len(B))
     t0 = time.perf_counter()
     for i, (tr, va) in enumerate(folds):
         if i:
             per = (time.perf_counter() - t0) / i
-            if budget.remaining() - RESERVE < per * 1.1:
+            if budget.remaining() - RESERVE < per * 1.1:                 # per-model safety check
                 log(f"abort {name}: budget")
                 return None
         m = make(m_arg)
@@ -243,6 +322,8 @@ def _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log):
             yt = np.log1p(y[tr]) if tf == "log1p" else y[tr]
             m.fit(A[tr], yt)
             pv, pt = m.predict(A[va]), m.predict(B)
+            if linear:   # no extrapolation beyond the training target range (in log space when log1p)
+                pv, pt = np.clip(pv, yt.min(), yt.max()), np.clip(pt, yt.min(), yt.max())
             if tf == "log1p":
                 pv, pt = np.expm1(np.clip(pv, None, 60)), np.expm1(np.clip(pt, None, 60))
             oof[va], test = pv, test + pt
@@ -253,10 +334,10 @@ def _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log):
 
 
 def _score(y, oof, clf, C):
-    """Higher is better. Classification: macro-F1 (+ tiny log-loss tiebreak); regression: -RMSE."""
+    """Higher is better. Classification: macro-F1 (+ tiny log-loss tiebreak); regression: R2."""
     if clf:
         return macro_f1(y, np.argmax(oof, 1), C) - 1e-4 * log_loss(y, oof)
-    return -rmse(y, oof)
+    return r2(y, oof)
 
 
 def _caruana(results, y, clf, C, n_steps=30):
@@ -288,13 +369,15 @@ def _clip(p, y):
 
 
 # --------------------------------------------------------------------------- clustering
+DROP_REL_WEIGHT = 0.05
+
+
 def _concat(a, b):
     import pandas as pd
     return a if b is None else pd.concat([a, b], axis=0, ignore_index=True)
 
 
-def _cluster_views(prep):
-    num, cat = _concat(prep.num_tr, prep.num_te), _concat(prep.cat_tr, prep.cat_te)
+def _cluster_views(num, cat, sparse_view=None):
     Oh, _, _ = onehot_encode(cat, None, max_levels=15, min_count=2, scale=1 / np.sqrt(2))
     S, _ = numeric_dense(num, None, indicators=False, log_skewed=False, scale=True)
     L, _ = numeric_dense(num, None, indicators=False, log_skewed=True, scale=True)
@@ -310,6 +393,8 @@ def _cluster_views(prep):
         sub = X if n <= 20000 else X[np.random.RandomState(SEED).choice(n, 20000, replace=False)]
         pca = PCA(n_components=0.95, svd_solver="full", whiten=True, random_state=SEED).fit(sub)
         views["pca_white"] = pca.transform(X)
+    if sparse_view is not None:
+        views["sparse_w"] = sparse_view
     return views
 
 
@@ -317,16 +402,41 @@ def _clustering(task, prep, budget, emit, log):
     from sklearn.cluster import AgglomerativeClustering, KMeans, SpectralClustering
     from sklearn.metrics import adjusted_rand_score, silhouette_score
     from sklearn.mixture import GaussianMixture
+    import feature_weighting as FW
 
-    views = _cluster_views(prep)
-    n = len(views["logstd"])
-    k = task.n_clusters or choose_k_silhouette(views["logstd"])
-    k = int(min(k, n))
+    num, cat = _concat(prep.num_tr, prep.num_te), _concat(prep.cat_tr, prep.cat_te)
+    n = len(num)
     n_pred = task.n_predict
+    info = {"candidates": []}
+
+    # 0) anchor KMeans on all features -> written immediately
+    Xg, groups, gnames, is_cat = FW.cluster_matrix(num, cat)
+    k = task.n_clusters or choose_k_silhouette(Xg)
+    k = int(min(k, n))
+    info["k"] = k
+    km0 = KMeans(k, n_init=20 if n <= 20000 else 5, random_state=SEED).fit(Xg)
+    emit(ensure_k_labels(km0.labels_, Xg, k)[-n_pred:], "kmeans_anchor")
+
+    # 1) relevance filter shared by every view (+ a sparse-weighted view)
+    sparse_view = None
+    if len(groups) >= 3 and k >= 2 and n >= 10 and budget.has(RESERVE + 4):
+        base_ratio = FW.group_ratio(Xg, km0.labels_, groups)
+        r = FW.fit_sparse(Xg, groups, k, budget)
+        w = r["w"]
+        drop = w < DROP_REL_WEIGHT * w.max()
+        num_ratio = base_ratio[~is_cat]
+        drop &= ~(is_cat & (base_ratio >= (np.median(num_ratio) if len(num_ratio) else 0.0)))
+        info["sparse_weights"] = {gnames[g]: round(float(w[g]), 4) for g in range(len(groups))}
+        if drop.any() and not drop.all():
+            gone = {gnames[g] for g in range(len(groups)) if drop[g]}
+            info["dropped_irrelevant"] = sorted(gone)
+            num = num[[c for c in num.columns if str(c) not in gone]]
+            cat = cat[[c for c in cat.columns if str(c) not in gone]]
+            sparse_view = FW.weighted(Xg, groups, w / w.max())
+    views = _cluster_views(num, cat, sparse_view)
     rng = np.random.RandomState(SEED)
     sub = np.arange(n) if n <= 20000 else np.sort(rng.choice(n, 10000, replace=False))
     cands = []
-    info = {"k": k, "candidates": []}
 
     def add(name, labels):
         labels = np.asarray(labels)
@@ -336,17 +446,10 @@ def _clustering(task, prep, budget, emit, log):
         if ok:
             cands.append((name, relabel_contiguous(labels)))
 
-    # 1) anchor: KMeans on log+std -> emitted immediately
     X0 = views["logstd"]
-    km0 = KMeans(k, n_init=20 if n <= 20000 else 5, random_state=SEED).fit(X0)
-    add("kmeans|logstd", km0.labels_)
-    emit(ensure_k_labels(km0.labels_, X0, k)[-n_pred:], "kmeans_anchor")
-
     algos = ["kmeans", "gmm", "ward", "spectral"]
     for vname, X in views.items():
         for algo in algos:
-            if (vname, algo) == ("logstd", "kmeans"):
-                continue
             if budget.remaining() < RESERVE + 2:
                 info["stopped_early"] = True
                 break
@@ -367,8 +470,13 @@ def _clustering(task, prep, budget, emit, log):
                     add(f"spectral|{vname}", sc.fit_predict(X))
             except Exception as e:  # noqa: BLE001
                 info["candidates"].append({"name": f"{algo}|{vname}", "error": repr(e)[:120]})
+        if vname == "logstd" and cands:
+            emit(ensure_k_labels(cands[0][1], X0, k)[-n_pred:], "kmeans_filtered")
     # 2) consensus: medoid partition by mean ARI to all others
     m = len(cands)
+    if m == 0:
+        info["model"] = "kmeans_anchor"
+        return info
     if m >= 3:
         M = np.eye(m)
         for i in range(m):
@@ -387,7 +495,7 @@ def _clustering(task, prep, budget, emit, log):
     else:
         pick = 0
     name, labels = cands[pick]
-    info["model"] = f"consensus_medoid:{name}"
+    info["model"] = f"consensus_medoid:{name}" + (" (relevance-filtered)" if "dropped_irrelevant" in info else "")
     labels = ensure_k_labels(labels, X0, k)
     emit(labels[-n_pred:], "consensus")
     return info
