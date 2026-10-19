@@ -227,7 +227,77 @@ def k_large(rng):
     return dict(df=df, task="clustering", target="truth")
 
 
-BUILDERS = [c_synth_imb, c_multi_nonlinear, c_tiny, c_breast_cancer, c_edge, c_large,
+def c_text_nantarget(rng):
+    n = 700
+    y = rng.randint(0, 2, n).astype(float)
+    words = np.array(["great", "bad", "service", "slow", "fast", "price", "helpful", "rude", "ok", "late"])
+    txt = [" ".join(rng.choice(words, rng.randint(4, 12))) + (" excellent" if t else " awful") for t in y]
+    df = pd.DataFrame({"review": txt, "amount": rng.exponential(50, n) + y * 20, "code": rng.randint(0, 5, n)})
+    y[rng.rand(n) < 0.03] = np.nan                      # some unlabeled training rows
+    df["label"] = y
+    return dict(df=df, task="classification", target="label", feature_types={"review": "text", "amount": "numeric",
+                                                                               "code": "categorical"})
+
+
+def k_all_categorical(rng):
+    n = 500
+    y = rng.randint(0, 3, n)
+    df = pd.DataFrame({"a": np.where(rng.rand(n) < .85, np.array(["x", "y", "z"])[y], "x"),
+                       "b": np.where(rng.rand(n) < .85, np.array(["p", "q", "q"])[y], "p"),
+                       "c": np.where(rng.rand(n) < .85, np.array(["m", "m", "n"])[y], "n"), "truth": y})
+    return dict(df=df, task="clustering", target="truth", feature_types=None)
+
+
+def c_bool_target_degenerate(rng):
+    n = 300
+    x = rng.randn(n)
+    df = pd.DataFrame({"only": x, "c1": 1.0, "c2": "same", "empty": np.nan, "target": x + rng.randn(n) * 0.5 > 0})
+    return dict(df=df, task="classification", target="target", post=_add_extra_test_col)
+
+
+def _add_extra_test_col(out_dir):
+    te = pd.read_csv(os.path.join(out_dir, "test.csv"))
+    te["surprise"] = 1
+    te.to_csv(os.path.join(out_dir, "test.csv"), index=False)
+
+
+def c_many_classes(rng):
+    from sklearn.datasets import make_classification
+    X, y = make_classification(1500, 15, n_informative=10, n_classes=20, n_clusters_per_class=1, random_state=9)
+    df = pd.DataFrame(X, columns=[f"z{i}" for i in range(15)])
+    df["y"] = [f"class_{v:02d}" for v in y]
+    return dict(df=df, task="classification", target="y")
+
+
+def k_no_k(rng):
+    from sklearn.datasets import make_blobs
+    X, y = make_blobs(600, n_features=3, centers=4, random_state=10)
+    df = pd.DataFrame(X, columns=["u", "v", "w"])
+    df["truth"] = y
+    return dict(df=df, task="clustering", target="truth", post=_drop_k)
+
+
+def _drop_k(out_dir):
+    p = os.path.join(out_dir, "metadata.json")
+    with open(p) as f:
+        m = json.load(f)
+    m.pop("n_clusters", None)
+    with open(p, "w") as f:
+        json.dump(m, f, indent=2)
+
+
+def r_wide(rng):
+    n, p = 1500, 400
+    X = rng.randn(n, p)
+    beta = np.zeros(p)
+    beta[:15] = rng.randn(15)
+    df = pd.DataFrame(X, columns=[f"w{i}" for i in range(p)])
+    df["shop"] = [f"shop{v}" for v in rng.randint(0, 150, n)]
+    df["y"] = X @ beta + np.sin(X[:, 20]) * 2 + rng.randn(n) * 0.5 + (df["shop"].str.len() == 6) * 1.0
+    return dict(df=df, task="regression", target="y")
+
+
+BUILDERS = [r_wide, c_bool_target_degenerate, c_many_classes, k_no_k, c_text_nantarget, k_all_categorical, c_synth_imb, c_multi_nonlinear, c_tiny, c_breast_cancer, c_edge, c_large,
             r_friedman, r_counts_datetime, r_diabetes, r_tiny, r_prices_strings,
             k_blobs_noise, k_aniso_scaled, k_mixed_cat, k_tiny, k_large]
 

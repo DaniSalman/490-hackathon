@@ -45,6 +45,11 @@ def score(data_dir, out_dir):
     if p.isna().any():
         res["error"] = "NaN predictions"
         return res
+    lab_ok = y.notna().to_numpy()            # rows without a ground-truth label are not scored
+    y, p = y[lab_ok].reset_index(drop=True), p[lab_ok].reset_index(drop=True)
+    if False:
+        res["error"] = "NaN predictions"
+        return res
     if task == "classification":
         ys, ps = y.astype(str), p.astype(str)
         # normalise 1 vs 1.0 style differences

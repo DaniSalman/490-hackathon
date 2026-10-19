@@ -206,6 +206,19 @@ def _datetime_features(dt, name, cyclic=False):
     return {k: pd.Series(v, index=dt.index).astype(float) for k, v in feats.items()}
 
 
+def _text_tokens(st, col, ntr, max_tokens=30):
+    """Binary presence of the most frequent tokens (vocabulary from training rows only)."""
+    try:
+        from sklearn.feature_extraction.text import CountVectorizer
+        docs = st.fillna("").astype(str)
+        cv = CountVectorizer(max_features=max_tokens, binary=True, min_df=5, lowercase=True)
+        cv.fit(docs.iloc[:ntr])
+        M = cv.transform(docs).toarray().astype(float)
+        return {f"{col}__tok_{w}": pd.Series(M[:, j], index=st.index) for w, j in cv.vocabulary_.items()}
+    except Exception:
+        return {}
+
+
 def prepare(task, cyclic_datetime=False, text_features=True, freq_encode_threshold=50):
     """Label-free preparation. Type decisions use the training rows; conversions apply to train+test."""
     Xtr, Xte = task.X_train, task.X_test
@@ -263,7 +276,8 @@ def prepare(task, cyclic_datetime=False, text_features=True, freq_encode_thresho
                 st = clean_strings(s_full)
                 num[f"{col}__len"] = st.str.len().astype(float)
                 num[f"{col}__words"] = (st.str.count(r"\s+") + 1).astype(float)
-                rec["action"] = "text_stats"
+                num.update(_text_tokens(st, col, ntr))
+                rec["action"] = "text_stats+tokens"
             else:
                 rec["action"] = "dropped_text"
         else:

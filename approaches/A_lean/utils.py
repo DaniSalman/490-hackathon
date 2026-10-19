@@ -182,3 +182,27 @@ def ensure_k_labels(labels, X, k, seed=SEED):
         labels[move] = m
         m += 1
     return labels
+
+
+def hgb_wide_params(p):
+    """HistGB split finding costs ~ n_features x n_bins per node; on wide data (p > 100) use 63 bins
+    (measured ~5x faster at p=400 with little accuracy loss). Categorical codes must then be < 63,
+    see cap_cat_codes()."""
+    return {"max_bins": 63} if p > 100 else {}
+
+
+def cap_cat_codes(mask, max_bins, *mats):
+    """Set categorical ordinal codes >= max_bins-1 to NaN (rare levels) so HistGB accepts them."""
+    if mask is None or not np.any(mask):
+        return mats
+    out = []
+    for M in mats:
+        if M is None:
+            out.append(M)
+            continue
+        M = M.copy()
+        sub = M[:, mask]
+        sub[sub >= max_bins - 1] = np.nan
+        M[:, mask] = sub
+        out.append(M)
+    return out

@@ -66,6 +66,9 @@ def build_profile(task, prepared_info=None):
                "is_constant": bool(s.nunique(dropna=False) <= 1),
                "is_id_like": bool(inferred == "id" or (role == "id")),
                "duplicate_of": dups.get(c)}
+        if role == "id":
+            col_types["id"] += 1
+            idlike.append(c)
         if role == "feature":
             t = rec["type"]
             col_types[t] = col_types.get(t, 0) + 1

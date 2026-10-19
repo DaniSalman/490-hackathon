@@ -2,7 +2,7 @@
 
 classification : HistGradientBoosting (native categoricals/NaN), balanced weights when imbalanced,
                  K-fold bagging (fold models averaged on test), OOF-tuned class weights for macro-F1;
-                 tiny data (n<500): blend with logistic regression chosen by OOF log-loss.
+                 tiny data (n<500 or <100 rows/class): blend with logistic regression chosen by OOF log-loss.
 regression     : HistGradientBoosting; raw vs log1p target picked by OOF RMSE (original scale);
                  tiny data: blend with ridge; predictions clipped to a widened training range.
 clustering     : impute -> log1p skewed -> standardise; one-hot/sqrt(2) categoricals; PCA when wide;
@@ -14,8 +14,8 @@ import warnings
 import numpy as np
 
 from cleaning import encode_classes, encode_regression_target, numeric_dense, onehot_encode, ordinal_encode, prepare
-from utils import (SEED, align_proba, choose_k_silhouette, ensure_k_labels, get_n_jobs, log_loss, macro_f1,
-                   make_folds, r2, rmse, tune_class_weights)
+from utils import (SEED, align_proba, choose_k_silhouette, ensure_k_labels, get_n_jobs, hgb_wide_params, cap_cat_codes, log_loss,
+                   macro_f1, make_folds, r2, rmse, tune_class_weights)
 
 warnings.filterwarnings("ignore")
 RESERVE = 4.0   # seconds kept back for writing outputs
@@ -98,6 +98,9 @@ def _classification(task, prep, budget, emit, log):
     counts = np.bincount(y, minlength=C)
     imb = counts.max() / max(1, counts[counts > 0].min())
     params = _hgb_params(n, "classification")
+    params.update(hgb_wide_params(A.shape[1]))
+    if "max_bins" in params:
+        A, B = cap_cat_codes(mask, params["max_bins"], A, B)
     if imb > 3:
         params["class_weight"] = capped_balanced_weights(counts)
     params["categorical_features"] = mask if mask.any() else None
@@ -125,7 +128,7 @@ def _classification(task, prep, budget, emit, log):
     info["cv_folds_done"] = done
 
     # tiny data: blend with logistic regression
-    if n < 500 and budget.has(RESERVE + 2):
+    if (n < 500 or n / C < 100) and budget.has(RESERVE + 2):
         from sklearn.linear_model import LogisticRegression
         LA, LB = _linear_matrix(prep, keep)
         oof_lr = np.full((n, C), np.nan)
@@ -175,6 +178,9 @@ def _regression(task, prep, budget, emit, log):
         return info
     A, B, mask = _tree_matrix(prep, keep)
     params = _hgb_params(n, "regression")
+    params.update(hgb_wide_params(A.shape[1]))
+    if "max_bins" in params:
+        A, B = cap_cat_codes(mask, params["max_bins"], A, B)
     params["categorical_features"] = mask if mask.any() else None
     nonneg = bool(y.min() >= 0)
     sk = float(skew(y)) if np.std(y) > 0 else 0.0
