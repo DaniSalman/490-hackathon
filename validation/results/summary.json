@@ -1,0 +1,571 @@
+{
+ "scoring": {
+  "quality": "per dataset 85/18 pts x norm, norm = clip((m - trivial) / (1 - trivial), 0, 1); m = macro-F1 / R2 / ARI; trivial = macro-F1 of the majority class on the test set / 0 / 0; crash, timeout or invalid output = 0",
+  "quality_alt": "same but norm_rel = clip((m - trivial) / (best - trivial), 0, 1), best = best of A/B/C and the two sklearn baselines",
+  "profile": "per dataset 10/18 pts x mean of 14 field scores in [0,1] (see profile_fields)",
+  "speed": "per dataset 5/18 pts x f(t) x useful; f(t) = 1 for t <= 5 s, 1 - ln(t/5)/ln(12) for 5 < t < 60, 0 beyond; useful = valid and (norm >= 0.5 or norm >= 0.9 x norm of the sklearn HGB/KMeans baseline)"
+ },
+ "approaches": {
+  "A_lean": {
+   "quality": 60.97,
+   "quality_rel": 80.005,
+   "profile": 9.959,
+   "speed": 4.886,
+   "total": 75.815,
+   "per_task_quality": {
+    "classification": 16.44,
+    "regression": 24.24,
+    "clustering": 20.29
+   },
+   "per_task_mean_primary": {
+    "classification": 0.7371,
+    "regression": 0.8555,
+    "clustering": 0.7161
+   },
+   "n_ok": 18,
+   "statuses": {
+    "ok": 18
+   },
+   "wall_median": 2.44,
+   "wall_max": 8.49,
+   "wall_p90": 5.79
+  },
+  "B_portfolio": {
+   "quality": 60.684,
+   "quality_rel": 79.923,
+   "profile": 9.959,
+   "speed": 3.397,
+   "total": 74.04,
+   "per_task_quality": {
+    "classification": 16.752,
+    "regression": 23.946,
+    "clustering": 19.985
+   },
+   "per_task_mean_primary": {
+    "classification": 0.747,
+    "regression": 0.8452,
+    "clustering": 0.7054
+   },
+   "n_ok": 18,
+   "statuses": {
+    "ok": 18
+   },
+   "wall_median": 9.34,
+   "wall_max": 33.86,
+   "wall_p90": 32.75
+  },
+  "C_rules": {
+   "quality": 58.729,
+   "quality_rel": 77.025,
+   "profile": 9.959,
+   "speed": 4.545,
+   "total": 73.234,
+   "per_task_quality": {
+    "classification": 16.503,
+    "regression": 19.485,
+    "clustering": 22.741
+   },
+   "per_task_mean_primary": {
+    "classification": 0.7393,
+    "regression": 0.6803,
+    "clustering": 0.8026
+   },
+   "n_ok": 18,
+   "statuses": {
+    "ok": 18
+   },
+   "wall_median": 3.44,
+   "wall_max": 52.28,
+   "wall_p90": 9.2
+  }
+ },
+ "baselines_quality": {
+  "sk_hgb": {
+   "total": 39.426,
+   "classification": 15.658,
+   "regression": 23.768,
+   "clustering": 0.0
+  },
+  "sk_kmeans": {
+   "total": 17.084,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 17.084
+  },
+  "sk_kmeans_raw": {
+   "total": 13.057,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 13.057
+  },
+  "sk_linear": {
+   "total": 30.956,
+   "classification": 12.946,
+   "regression": 18.01,
+   "clustering": 0.0
+  },
+  "trivial": {
+   "total": 0.0,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 0.0
+  }
+ },
+ "determinism": [
+  {
+   "approach": "A_lean",
+   "dataset": "c_creditg",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "HistGradientBoostingClassifier",
+   "model_run2": "HistGradientBoostingClassifier"
+  },
+  {
+   "approach": "A_lean",
+   "dataset": "c_bank",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "HistGradientBoostingClassifier",
+   "model_run2": "HistGradientBoostingClassifier"
+  },
+  {
+   "approach": "A_lean",
+   "dataset": "k_drybean",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "KMeans",
+   "model_run2": "KMeans",
+   "ari_between_runs": 1.0
+  },
+  {
+   "approach": "B_portfolio",
+   "dataset": "c_creditg",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "CaruanaEnsemble(logreg:0.2692, extratrees:0.3462, randomforest:0.3462, knn:0.038",
+   "model_run2": "CaruanaEnsemble(logreg:0.2692, extratrees:0.3462, randomforest:0.3462, knn:0.038"
+  },
+  {
+   "approach": "B_portfolio",
+   "dataset": "c_bank",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "CaruanaEnsemble(hgb_b:0.3333, randomforest:0.4167, hgb_c:0.25)",
+   "model_run2": "CaruanaEnsemble(hgb_b:0.3333, randomforest:0.4167, hgb_c:0.25)"
+  },
+  {
+   "approach": "B_portfolio",
+   "dataset": "k_drybean",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "consensus_medoid:kmeans|logstd",
+   "model_run2": "consensus_medoid:kmeans|logstd",
+   "ari_between_runs": 1.0
+  },
+  {
+   "approach": "C_rules",
+   "dataset": "c_creditg",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "0.5*linear+0.5*hgb",
+   "model_run2": "0.5*linear+0.5*hgb"
+  },
+  {
+   "approach": "C_rules",
+   "dataset": "c_bank",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "0.5*linear+0.5*hgb",
+   "model_run2": "0.5*linear+0.5*hgb"
+  },
+  {
+   "approach": "C_rules",
+   "dataset": "k_drybean",
+   "identical": true,
+   "frac_rows_equal": 1.0,
+   "model_run1": "sparse_kmeans->GMM(diag)",
+   "model_run2": "sparse_kmeans->GMM(diag)",
+   "ari_between_runs": 1.0
+  }
+ ],
+ "stress": [
+  {
+   "approach": "A_lean",
+   "probe": "s_house_missing",
+   "status": "ok",
+   "wall_time": 5.063,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.8111734081888984,
+   "base_primary": 0.8909766577338063,
+   "model": "HistGradientBoostingRegressor",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_house_missing",
+   "status": "ok",
+   "wall_time": 21.876,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.7100533690231956,
+   "base_primary": 0.821062509394383,
+   "model": "CaruanaEnsemble(hgb_a:0.0741, ridge[log1p]:0.6667, extratrees[log1p]:0.0741, hgb",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_house_missing",
+   "status": "ok",
+   "wall_time": 4.879,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.7131740144237975,
+   "base_primary": 0.7506810132753658,
+   "model": "0.5*linear+0.5*hgb[log1p]",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_house_strnum",
+   "status": "ok",
+   "wall_time": 4.364,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.8909766577338063,
+   "base_primary": 0.8909766577338063,
+   "model": "HistGradientBoostingRegressor",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_house_strnum",
+   "status": "ok",
+   "wall_time": 16.937,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.821062509394383,
+   "base_primary": 0.821062509394383,
+   "model": "CaruanaEnsemble(hgb_a:0.1111, hgb_a[log1p]:0.1481, ridge[log1p]:0.2593, hgb_b[lo",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_house_strnum",
+   "status": "ok",
+   "wall_time": 4.37,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.7506810132753658,
+   "base_primary": 0.7506810132753658,
+   "model": "0.5*linear+0.5*hgb[log1p]",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_house_unseen",
+   "status": "ok",
+   "wall_time": 4.283,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.8711711830101443,
+   "base_primary": 0.8909766577338063,
+   "model": "HistGradientBoostingRegressor",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_house_unseen",
+   "status": "ok",
+   "wall_time": 16.447,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.8075754696428725,
+   "base_primary": 0.821062509394383,
+   "model": "CaruanaEnsemble(hgb_a:0.1111, hgb_a[log1p]:0.1481, ridge[log1p]:0.2593, hgb_b[lo",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_house_unseen",
+   "status": "ok",
+   "wall_time": 4.331,
+   "traceback": false,
+   "primary_metric": "r2",
+   "primary": 0.7417986904937702,
+   "base_primary": 0.7506810132753658,
+   "model": "0.5*linear+0.5*hgb[log1p]",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_penguins_missing",
+   "status": "ok",
+   "wall_time": 1.534,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.6323948170551752,
+   "base_primary": 0.7507979728956042,
+   "model": "KMeans",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_penguins_missing",
+   "status": "ok",
+   "wall_time": 2.465,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.7286226629961357,
+   "base_primary": 0.6534015548206266,
+   "model": "consensus_medoid:ward|std",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_penguins_missing",
+   "status": "ok",
+   "wall_time": 1.696,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.5815646692581725,
+   "base_primary": 0.5805289130087409,
+   "model": "sparse_kmeans->GMM(diag)",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_penguins_strnum",
+   "status": "ok",
+   "wall_time": 1.561,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.7507979728956042,
+   "base_primary": 0.7507979728956042,
+   "model": "KMeans",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_penguins_strnum",
+   "status": "ok",
+   "wall_time": 1.708,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.6534015548206266,
+   "base_primary": 0.6534015548206266,
+   "model": "consensus_medoid:gmm_full|std",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_penguins_strnum",
+   "status": "ok",
+   "wall_time": 1.736,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.5805289130087409,
+   "base_primary": 0.5805289130087409,
+   "model": "sparse_kmeans->GMM(diag)",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_penguins_unseen",
+   "status": "ok",
+   "wall_time": 1.656,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.9066487271332391,
+   "base_primary": 0.7507979728956042,
+   "model": "KMeans",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_penguins_unseen",
+   "status": "ok",
+   "wall_time": 1.736,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 1.0,
+   "base_primary": 0.6534015548206266,
+   "model": "consensus_medoid:ward|std",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_penguins_unseen",
+   "status": "ok",
+   "wall_time": 1.744,
+   "traceback": false,
+   "primary_metric": "ari",
+   "primary": 0.5486184911397407,
+   "base_primary": 0.5805289130087409,
+   "model": "sparse_kmeans->GMM(diag)",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_telco_missing",
+   "status": "ok",
+   "wall_time": 2.621,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7202466898823174,
+   "base_primary": 0.7282871324832902,
+   "model": "HistGradientBoostingClassifier",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_telco_missing",
+   "status": "ok",
+   "wall_time": 11.165,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7158073105785524,
+   "base_primary": 0.7279012235508755,
+   "model": "CaruanaEnsemble(hgb_a:0.2857, logreg:0.5, hgb_b:0.0714, randomforest:0.0714, hgb",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_telco_missing",
+   "status": "ok",
+   "wall_time": 3.738,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.714874750285779,
+   "base_primary": 0.7344445425137845,
+   "model": "0.5*linear+0.5*hgb",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_telco_strnum",
+   "status": "ok",
+   "wall_time": 2.51,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7282871324832902,
+   "base_primary": 0.7282871324832902,
+   "model": "HistGradientBoostingClassifier",
+   "profile_score": 0.9964285714285713,
+   "profile_col_type": 0.95,
+   "type_errors": "SeniorCitizen:numeric!=boolean/categorical"
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_telco_strnum",
+   "status": "ok",
+   "wall_time": 10.522,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.720442056417145,
+   "base_primary": 0.7279012235508755,
+   "model": "CaruanaEnsemble(logreg:0.9259, knn:0.0741)",
+   "profile_score": 0.9964285714285713,
+   "profile_col_type": 0.95,
+   "type_errors": "SeniorCitizen:numeric!=boolean/categorical"
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_telco_strnum",
+   "status": "ok",
+   "wall_time": 3.591,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7335875867312993,
+   "base_primary": 0.7344445425137845,
+   "model": "0.5*linear+0.5*hgb",
+   "profile_score": 0.9964285714285713,
+   "profile_col_type": 0.95,
+   "type_errors": "SeniorCitizen:numeric!=boolean/categorical"
+  },
+  {
+   "approach": "A_lean",
+   "probe": "s_telco_unseen",
+   "status": "ok",
+   "wall_time": 2.477,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7279227097605554,
+   "base_primary": 0.7282871324832902,
+   "model": "HistGradientBoostingClassifier",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "B_portfolio",
+   "probe": "s_telco_unseen",
+   "status": "ok",
+   "wall_time": 10.134,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7177881035469144,
+   "base_primary": 0.7279012235508755,
+   "model": "CaruanaEnsemble(logreg:0.9091, knn:0.0909)",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  },
+  {
+   "approach": "C_rules",
+   "probe": "s_telco_unseen",
+   "status": "ok",
+   "wall_time": 3.537,
+   "traceback": false,
+   "primary_metric": "macro_f1",
+   "primary": 0.7331568805642776,
+   "base_primary": 0.7344445425137845,
+   "model": "0.5*linear+0.5*hgb",
+   "profile_score": 1.0,
+   "profile_col_type": 1.0,
+   "type_errors": ""
+  }
+ ]
+}

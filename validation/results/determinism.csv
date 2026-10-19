@@ -1,0 +1,10 @@
+approach,dataset,identical,frac_rows_equal,model_run1,model_run2,ari_between_runs
+A_lean,c_creditg,True,1.0,HistGradientBoostingClassifier,HistGradientBoostingClassifier,
+A_lean,c_bank,True,1.0,HistGradientBoostingClassifier,HistGradientBoostingClassifier,
+A_lean,k_drybean,True,1.0,KMeans,KMeans,1.0
+B_portfolio,c_creditg,True,1.0,"CaruanaEnsemble(logreg:0.2692, extratrees:0.3462, randomforest:0.3462, knn:0.038","CaruanaEnsemble(logreg:0.2692, extratrees:0.3462, randomforest:0.3462, knn:0.038",
+B_portfolio,c_bank,True,1.0,"CaruanaEnsemble(hgb_b:0.3333, randomforest:0.4167, hgb_c:0.25)","CaruanaEnsemble(hgb_b:0.3333, randomforest:0.4167, hgb_c:0.25)",
+B_portfolio,k_drybean,True,1.0,consensus_medoid:kmeans|logstd,consensus_medoid:kmeans|logstd,1.0
+C_rules,c_creditg,True,1.0,0.5*linear+0.5*hgb,0.5*linear+0.5*hgb,
+C_rules,c_bank,True,1.0,0.5*linear+0.5*hgb,0.5*linear+0.5*hgb,
+C_rules,k_drybean,True,1.0,sparse_kmeans->GMM(diag),sparse_kmeans->GMM(diag),1.0

@@ -222,10 +222,14 @@ def c_ai4i(root=SUITE):
         if c in df.columns:
             df[c] = pd.to_numeric(df[c]).astype(int)
     rec.nat("UCI AI4I 2020 predictive maintenance (OpenML 42890), 10000 x 14; failure rate 3.4 % (strongly imbalanced)")
-    rec.nat("UDI row counter and Product ID (unique string) are IDs; failure-mode flags TWF/HDF/PWF/OSF/RNF present in train AND test (as in the Kaggle file)")
+    rec.nat("UDI row counter and Product ID (unique string) are IDs")
+    # The failure-mode flags TWF/HDF/PWF/OSF/RNF are near-deterministic components of the target (leakage:
+    # a default HGB reaches macro-F1 0.98 with them). The Kaggle 'Machine Predictive Maintenance' variant ships
+    # without them; we drop them so the dataset actually tests imbalance handling.
+    df = df.drop(columns=["TWF", "HDF", "PWF", "OSF", "RNF"])
+    rec.inj("dropped the leaking failure-mode flags TWF/HDF/PWF/OSF/RNF (as in the Kaggle predictive-maintenance variant)")
     rec.truth["id_columns"].append("Product ID")
-    ft = declare(df, tgt, "UDI", {"Type": "categorical", "Product ID": "categorical",
-                                   **{c: "categorical" for c in ("TWF", "HDF", "PWF", "OSF", "RNF")}})
+    ft = declare(df, tgt, "UDI", {"Type": "categorical", "Product ID": "categorical"})
     return finish(df, rec, root, "classification", tgt, id_column="UDI", ft=ft), rec
 
 

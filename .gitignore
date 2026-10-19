@@ -9,3 +9,4 @@ validation/cache/
 dev_data/
 runs/
 validation/runs/
+validation/*.log
