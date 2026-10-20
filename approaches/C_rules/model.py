@@ -22,10 +22,12 @@ supervised rules
                (in log space); predictions clipped
   final fit  : refit on all training rows (HistGB iterations = 1.1 x median early-stopped CV iterations);
                falls back to the fold-averaged models if the projected refit cost does not fit.
-clustering    : group-aware sparse k-means (Witten & Tibshirani 2010; one-hot blocks weighted like numerics);
-               the soft-weighted space is used only when some feature weight < 5 % of the largest; then a GMM
-               (diag / full) replaces KMeans only if it agrees with it (ARI >= 0.6) and improves BIC by >= 15 %
-               (full covariance only when well determined), with a degenerate-cluster guard.
+clustering    : group-aware sparse k-means weights; the soft-weighted space only when the shared permutation test
+               confirms irrelevant features (they get weight 0); rule-gated candidates (KMeans; Ward if n <= 6000;
+               GMM-diag on continuous columns if >= 2; GMM-full on PCA-whitened data if >= 30 rows per group);
+               the partition most candidates agree with (medoid ARI) is returned -- no BIC-gain acceptance.
+round 2       : log1p rule verified by the probe (reverted when it loses > 0.005 R2); 3 folds when n*p*classes
+               > 5e6.
 """
 import time
 import warnings
@@ -40,6 +42,8 @@ from utils import (SEED, FitTimer, align_proba, choose_k_silhouette, ensure_k_la
 
 warnings.filterwarnings("ignore")
 RESERVE = 4.0
+LOG_LOSS_MAX = 0.005       # C3: revert the log1p rule when the probe shows it losing more R2 than this
+HEAVY_WORK = 5e6           # C4: n x p x classes above this -> 3 folds
 REG_LINEAR_MARGIN = 0.01   # regression: linear must beat the quick tree by this R2 margin to be blended
 HIGH_CARD = 30
 
@@ -144,7 +148,7 @@ def meta_features(prep, y, clf, feats):
     from scipy.stats import skew
     n = len(y)
     mf = {"n": int(n), "p_numeric": int(prep.num_tr.shape[1]), "p_categorical": int(prep.cat_tr.shape[1]),
-          "p_linear": int(feats.lin_tr.shape[1]), "n_high_card": len(feats.hi),
+          "p_linear": int(feats.lin_tr.shape[1]), "p_tree": int(feats.tree_tr.shape[1]), "n_high_card": len(feats.hi),
           "has_datetime": bool(prep.info.get("datetime_columns")),
           "missing_ratio": float(np.isnan(prep.num_tr.to_numpy(float)).mean()) if prep.num_tr.shape[1] else 0.0}
     if clf:
@@ -172,8 +176,11 @@ def _hgb_params(n):
     return p
 
 
-def _linearity_probe(feats, y, clf, C, budget):
-    """3-fold CV on <=3000 rows: linear model vs a quick HistGB. Returns (linear_score, tree_score)."""
+def _linearity_probe(feats, y, clf, C, budget, y_raw=None, log_check=None):
+    """3-fold CV on <=3000 rows: linear model vs a quick HistGB. Returns (linear_score, tree_score).
+
+    log_check (dict, regression with the log1p rule): also fits the quick HistGB on the RAW target and stores
+    the original-scale R2 of both target choices in it (C3: the rule proposes log1p, the probe verifies)."""
     from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
     from sklearn.linear_model import LogisticRegression, Ridge
     n = len(y)
@@ -197,6 +204,11 @@ def _linearity_probe(feats, y, clf, C, budget):
                                                random_state=SEED).fit(Ttr, y[tr])
             ls.append(r2(y[va], lm.predict(Lva)))
             ts.append(r2(y[va], tm.predict(Tva)))
+            if log_check is not None and y_raw is not None:
+                tr_raw = HistGradientBoostingRegressor(max_iter=100, learning_rate=0.1, categorical_features=mask,
+                                                       random_state=SEED).fit(Ttr, y_raw[tr])
+                log_check.setdefault("raw", []).append(r2(y_raw[va], tr_raw.predict(Tva)))
+                log_check.setdefault("log1p", []).append(r2(y_raw[va], np.expm1(np.clip(tm.predict(Tva), None, 60))))
         if not budget.has(RESERVE + 10):
             break
     return float(np.mean(ls)), float(np.mean(ts))
@@ -235,7 +247,16 @@ def decide(mf, probe):
         plan["log_target"] = mf["target_nonneg"] and mf["target_skew"] > 0.75
         if plan["log_target"]:
             plan["rules_fired"].append("y>=0 & skew>0.75 -> log1p target")
-    plan["folds"] = 5 if n <= 20000 else 3
+            lc = mf.get("log_check")
+            if lc and lc.get("raw") and lc.get("log1p"):
+                r_raw, r_log = float(np.mean(lc["raw"])), float(np.mean(lc["log1p"]))
+                if r_log < r_raw - LOG_LOSS_MAX:
+                    plan["log_target"] = False
+                    plan["rules_fired"].append(f"probe: log1p R2 {r_log:.4f} < raw {r_raw:.4f} - {LOG_LOSS_MAX} -> raw target")
+    work = n * mf["p_tree"] * max(1, mf.get("n_classes", 1))
+    plan["folds"] = 5 if (n <= 20000 and work <= HEAVY_WORK) else 3
+    if work > HEAVY_WORK:
+        plan["rules_fired"].append(f"n*p*classes={work:.2g} > {HEAVY_WORK:.0e} -> 3 folds (time headroom)")
     plan["refit_full"] = True
     if mf.get("has_datetime"):
         plan["rules_fired"].append("datetime -> calendar + cyclic features")
@@ -332,7 +353,11 @@ def _supervised(task, prep, budget, emit, log):
     many = clf and mf["n_classes"] >= 8 and n / mf["n_classes"] < 150
     wide = mf["p_linear"] > 150 and n < 10 * mf["p_linear"]
     if n >= 400 and not many and (not wide or not clf) and budget.has(RESERVE + 8):
-        probe = _linearity_probe(feats, y if clf else (np.log1p(y) if log_rule else y), clf, C, budget)
+        lc = {} if log_rule else None
+        probe = _linearity_probe(feats, y if clf else (np.log1p(y) if log_rule else y), clf, C, budget,
+                                 y_raw=None if clf else y, log_check=lc)
+        if lc:
+            mf["log_check"] = {k: round(float(np.mean(v)), 5) for k, v in lc.items()}
     plan = decide(mf, probe)
     log(f"plan: {plan['regime']} {plan['models']} | {plan['rules_fired']}")
     info = {"meta_features": mf, "plan": {k: v for k, v in plan.items() if k != "models"},
@@ -443,15 +468,16 @@ def _concat(a, b):
     return a if b is None else pd.concat([a, b], axis=0, ignore_index=True)
 
 
-SPARSE_ACTIVE = 0.05   # weighted space only if some feature weight < 5 % of the largest (irrelevant features)
-GMM_AGREEMENT = 0.60   # ARI(GMM, KMeans) required to accept a GMM partition
-GMM_BIC_GAIN = 15.0    # required % BIC improvement over the spherical (KMeans-like) mixture
-
-
 def _clustering(task, prep, budget, emit, log):
+    """Rule-driven clustering:
+      1. group-aware sparse k-means weights; the soft-weighted space is used only when the shared relevance
+         test (low weight AND permutation-confirmed) finds irrelevant features -- those get weight 0;
+      2. rule-gated candidates in that space: KMeans always; Ward when n <= 6000 (O(n^2)); GMM-diag on the
+         continuous columns when there are >= 2 of them; GMM-full on PCA-whitened data when there are
+         >= 30 rows per group;
+      3. the partition most candidates agree with (medoid by mean pairwise ARI; ties -> KMeans).
+    No BIC-gain acceptance (one-hot 0/1 dimensions dominate a Gaussian likelihood)."""
     from sklearn.cluster import KMeans
-    from sklearn.metrics import adjusted_rand_score as ARI
-    from sklearn.mixture import GaussianMixture
     import feature_weighting as FW
 
     num, cat = _concat(prep.num_tr, prep.num_te), _concat(prep.cat_tr, prep.cat_te)
@@ -460,61 +486,51 @@ def _clustering(task, prep, budget, emit, log):
     n_pred = task.n_predict
     k = task.n_clusters or choose_k_silhouette(X)
     k = int(min(k, n))
-    rng = np.random.RandomState(SEED)
-    info = {"k": k, "n_features_in": int(p)}
+    info = {"k": k, "n_features_in": int(p), "rules_fired": []}
 
     base = KMeans(k, n_init=10, random_state=SEED).fit_predict(X)
     emit(ensure_k_labels(base, X, k)[-n_pred:], "kmeans_all_features")
+    if k < 2 or n < 10:
+        info["model"] = "kmeans"
+        return info
 
-    # 1) group-aware sparse k-means (C4a: one-hot blocks are judged like numerics, by explained-variance
-    #    ratio); rule: the soft-weighted space is used only when sparsity finds clearly irrelevant features
-    Xs = X
-    info["model"] = "kmeans"
-    if len(groups) >= 3 and k >= 2 and n >= 10 and budget.has(RESERVE + 4):
+    # 1) soft-weighted space only when irrelevant features are confirmed
+    Xs, w_used = X, np.ones(len(groups))
+    space = "unweighted"
+    if len(groups) >= 3 and budget.has(RESERVE + 4):
         r = FW.fit_sparse(X, groups, k, budget)
         w = r["w"]
-        info.update(sparsity_s=r["s"], gap_by_s=r["gaps"],
-                    feature_weights={names[g]: round(float(w[g]), 4) for g in np.argsort(-w)[:30]})
-        if w.min() < SPARSE_ACTIVE * w.max():
-            Xs = FW.weighted(X, groups, w / w.max())
-            info["n_features_selected"] = int((w > 0).sum())
-            info["model"] = "sparse_kmeans"
+        drop, tests = FW.relevance_filter(X, groups, k, w)
+        info.update(sparsity_s=r["s"], feature_weights={names[g]: round(float(w[g]), 4) for g in np.argsort(-w)[:30]},
+                    relevance_tests={names[g]: v for g, v in tests.items()})
+        if drop.any():
+            w_used = np.where(drop, 0.0, w)
+            Xs = FW.weighted(X, groups, w_used / w_used.max())
+            space = "sparse-weighted"
+            info["rules_fired"].append(f"confirmed irrelevant {[names[g] for g in np.where(drop)[0]]} -> soft-weighted space")
         else:
-            info["sparsity_rule"] = "no clearly irrelevant feature -> unweighted space"
-    km = KMeans(k, n_init=20 if n <= 20000 else 4, random_state=SEED).fit(Xs)
-    labels = km.labels_
-    emit(ensure_k_labels(labels, Xs, k)[-n_pred:], info["model"])
+            info["rules_fired"].append("no confirmed irrelevant feature -> unweighted space")
+    info["space"] = space
 
-    # 2) KMeans vs GMM (C4b): a GMM replaces KMeans only if it AGREES with it (ARI) and BIC improves strongly;
-    #    full covariance only when its parameters are well determined (p <= 4 or n >= 10 k p(p+1)/2)
-    if n >= 20 * k and budget.has(RESERVE + 3):
-        fit_idx = np.arange(n) if n <= 20000 else rng.choice(n, 20000, replace=False)
-        Z = Xs[fit_idx]
-        ps = Xs.shape[1]
-        checks, best = {}, None
-        try:
-            bs = GaussianMixture(k, covariance_type="spherical", means_init=km.cluster_centers_, reg_covar=1e-4,
-                                 random_state=SEED, max_iter=200).fit(Z).bic(Z)
-            for cov in ("diag", "full"):
-                if cov == "full" and not (ps <= 4 or len(Z) >= 10 * k * ps * (ps + 1) / 2):
-                    continue
-                g = GaussianMixture(k, covariance_type=cov, means_init=km.cluster_centers_, reg_covar=1e-4,
-                                    random_state=SEED, max_iter=200).fit(Z)
-                bic = float(g.bic(Z))
-                gl = g.predict(Xs)
-                gain = float((bs - bic) / abs(bs) * 100)
-                agree = float(ARI(labels, gl))
-                ok = (agree >= GMM_AGREEMENT and gain >= GMM_BIC_GAIN
-                      and np.bincount(gl, minlength=k).min() >= max(2, 0.01 * n))
-                checks[cov] = {"agreement": round(agree, 3), "bic_gain_pct": round(gain, 2), "accepted": bool(ok)}
-                if ok and (best is None or bic < best[0]):
-                    best = (bic, cov, gl)
-        except Exception as e:  # noqa: BLE001
-            checks["error"] = repr(e)[:120]
-        info["gmm_checks"] = checks
-        if best is not None:
-            labels = best[2]
-            info["model"] += f"->GMM({best[1]})"
-    labels = ensure_k_labels(relabel_contiguous(labels), Xs, k)
+    # 2) rule-gated candidate set
+    kept = [g for g in range(len(groups)) if w_used[g] > 0]
+    cols = np.concatenate([groups[g] for g in kept])
+    pos = {c: i for i, c in enumerate(cols)}
+    num_kept = [g for g in kept if not is_cat[g]]
+    num_cols = np.array([pos[c] for g in num_kept for c in groups[g]], int) if num_kept else None
+    include = ["kmeans"]
+    if n <= FW.WARD_MAX_N:
+        include.append("ward")
+    if num_cols is not None and len(num_cols) >= 2:
+        include.append("gmm_diag")
+    if n >= 30 * k:
+        include.append("gmm_full")
+    info["rules_fired"].append(f"candidates gated by size/columns: {include}")
+    cands = FW.candidate_partitions(Xs, num_cols, k, budget, RESERVE, include=include)
+    if "kmeans" in cands:
+        emit(ensure_k_labels(cands["kmeans"], Xs, k)[-n_pred:], "kmeans_" + space)
+    pick, scores = FW.agreement_medoid(cands)
+    info.update(candidates=list(cands), agreement=scores, model=f"{pick} ({space})")
+    labels = ensure_k_labels(relabel_contiguous(cands[pick]), Xs, k)
     emit(labels[-n_pred:], "final")
     return info
