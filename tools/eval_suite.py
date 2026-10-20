@@ -1,10 +1,11 @@
-"""Developer re-evaluation on the Validator's round-1 suite, WITHOUT touching validation/results.
+"""Developer re-evaluation on the Validator's suites, WITHOUT touching anything under validation/.
 
 Reuses (read-only import) the Validator's grader simulation and scoring functions from
-validation/run_validation.py, but writes runs to runs/<tag>/ (gitignored).
+validation/run_validation.py; round-2 paths/baselines are passed explicitly. Runs go to runs/<tag>/<suite>/.
 
-    py tools/eval_suite.py run   --tag r1fix --approaches A_lean B_portfolio C_rules [--only k_iris ...]
-    py tools/eval_suite.py score --tag r1fix [--compare validation/results/results.csv]
+    py tools/eval_suite.py run   --tag r2fix --suite r1 r2 [--approaches A_lean ...] [--only k_synth ...]
+    py tools/eval_suite.py score --tag r2fix --suite r1 r2 [--before r1=runs/r1final/scores.csv
+                                                           r2=validation/results_round2/results.csv]
 """
 import argparse
 import json
@@ -19,27 +20,47 @@ sys.path.insert(0, os.path.join(ROOT, "validation"))
 import run_validation as RV  # noqa: E402
 
 PER_Q, PER_P, PER_S = 85 / 18, 10 / 18, 5 / 18
+SUITES = {
+    "r1": {"data": os.path.join(ROOT, "validation", "data", "suite"), "warmup": "k_seeds",
+           "baselines": os.path.join(ROOT, "validation", "results", "baselines.csv")},
+    "r2": {"data": os.path.join(ROOT, "validation", "data", "suite_r2"), "warmup": "k_wholesale",
+           "baselines": os.path.join(ROOT, "validation", "results_round2", "baselines.csv")},
+}
+
+
+def _root(tag, suite):
+    # backwards compatible: round-1-only tags written before this tool knew about suites
+    legacy = os.path.join(ROOT, "runs", tag)
+    new = os.path.join(legacy, suite)
+    if suite == "r1" and not os.path.isdir(new) and os.path.isdir(os.path.join(legacy, "A_lean")):
+        return legacy
+    return new
 
 
 def cmd_run(a):
-    base = os.path.join(ROOT, "runs", a.tag)
-    for ap in a.approaches:
-        RV.run_one(ap, os.path.join(RV.SUITE, RV.WARMUP_DS), os.path.join(base, "warmup", ap))
-        for ds in RV._datasets(RV.SUITE):
-            if a.only and ds not in a.only:
-                continue
-            m = RV.run_one(ap, os.path.join(RV.SUITE, ds), os.path.join(base, ap, ds))
-            print(f"{ap:12s} {ds:14s} {m['wall_time']:6.2f}s {m['status']:8s} tb={m['traceback']} "
-                  f"wd={m['watchdog']} first_pred={m.get('t_first_pred')}", flush=True)
+    for suite in a.suite:
+        S = SUITES[suite]
+        base = os.path.join(ROOT, "runs", a.tag, suite)
+        for ap in a.approaches:
+            RV.run_one(ap, os.path.join(S["data"], S["warmup"]), os.path.join(base, "warmup", ap))
+            for ds in RV._datasets(S["data"]):
+                if a.only and ds not in a.only:
+                    continue
+                m = RV.run_one(ap, os.path.join(S["data"], ds), os.path.join(base, ap, ds))
+                print(f"{suite} {ap:12s} {ds:16s} {m['wall_time']:6.2f}s {m['status']:8s} tb={m['traceback']} "
+                      f"wd={m['watchdog']}", flush=True)
 
 
-def score_tag(tag, approaches=None):
-    base = pd.read_csv(os.path.join(RV.RESULTS, "baselines.csv"))
+def score_suite(tag, suite, approaches=None):
+    S = SUITES[suite]
+    base = pd.read_csv(S["baselines"])
     rows = []
-    root = os.path.join(ROOT, "runs", tag)
-    approaches = approaches or [d for d in sorted(os.listdir(root)) if d != "warmup"]
-    for ds in RV._datasets(RV.SUITE):
-        d = os.path.join(RV.SUITE, ds)
+    root = _root(tag, suite)
+    if not os.path.isdir(root):
+        return pd.DataFrame()
+    approaches = approaches or [d for d in sorted(os.listdir(root)) if d in RV.APPROACHES]
+    for ds in RV._datasets(S["data"]):
+        d = os.path.join(S["data"], ds)
         _, truth = RV._load_meta(d)
         task = truth["task"]
         pm = RV.PRIMARY[task]
@@ -63,13 +84,14 @@ def score_tag(tag, approaches=None):
                 ps = float(np.mean([fs[f] for f in RV.PROFILE_FIELDS]))
             else:
                 ps = 0.0
-            rows.append({"approach": ap, "dataset": ds, "task": task, "status": meta.get("status"),
-                         "wall_time": meta.get("wall_time"), "t_first_pred": meta.get("t_first_pred"),
-                         "watchdog": meta.get("watchdog"), "primary": m, "rmsle": s.get("rmsle"),
+            rows.append({"suite": suite, "approach": ap, "dataset": ds, "task": task, "status": meta.get("status"),
+                         "wall_time": meta.get("wall_time"), "watchdog": meta.get("watchdog"), "primary": m,
+                         "rmsle": s.get("rmsle"), "balanced_accuracy": s.get("balanced_accuracy"),
                          "quality_pts": norm * PER_Q, "profile_pts": ps * PER_P, "speed_pts": PER_S * sf * useful,
                          "model": str(mod.get("model"))[:80]})
     df = pd.DataFrame(rows)
-    df["total_pts"] = df.quality_pts + df.profile_pts + df.speed_pts
+    if len(df):
+        df["total_pts"] = df.quality_pts + df.profile_pts + df.speed_pts
     return df
 
 
@@ -80,36 +102,44 @@ def summarise(df):
                    "speed": round(g.speed_pts.sum(), 2), "total": round(g.total_pts.sum(), 2),
                    **{f"q_{t[:3]}": round(g[g.task == t].quality_pts.sum(), 2) for t in RV.PRIMARY},
                    "wall_median": round(g.wall_time.median(), 2), "wall_max": round(g.wall_time.max(), 2),
-                   "n_ok": int((g.status == "ok").sum())}
+                   "n_ok": int((g.status == "ok").sum()), "n": int(len(g))}
     return out
 
 
 def cmd_score(a):
-    df = score_tag(a.tag)
-    os.makedirs(os.path.join(ROOT, "runs", a.tag), exist_ok=True)
-    df.to_csv(os.path.join(ROOT, "runs", a.tag, "scores.csv"), index=False, float_format="%.6g")
-    summ = summarise(df)
-    with open(os.path.join(ROOT, "runs", a.tag, "summary_points.json"), "w", encoding="utf-8") as f:
+    frames = [score_suite(a.tag, s) for s in a.suite]
+    frames = [f for f in frames if len(f)]
+    df = pd.concat(frames, ignore_index=True)
+    out_dir = os.path.join(ROOT, "runs", a.tag)
+    os.makedirs(out_dir, exist_ok=True)
+    df.to_csv(os.path.join(out_dir, "scores_all.csv"), index=False, float_format="%.6g")
+    summ = {s: summarise(df[df.suite == s]) for s in df.suite.unique()}
+    if len(summ) > 1:
+        summ["combined"] = summarise(df)
+    with open(os.path.join(out_dir, "summary_points.json"), "w", encoding="utf-8") as f:
         json.dump(summ, f, indent=1)
     print(json.dumps(summ, indent=1))
-    if a.compare:
-        old = pd.read_csv(a.compare)
-        m = df.merge(old[["approach", "dataset", "primary", "wall_time"]], on=["approach", "dataset"],
-                     suffixes=("", "_before"))
+    for spec in a.before or []:
+        suite, path = spec.split("=", 1)
+        old = pd.read_csv(path)
+        m = df[df.suite == suite].merge(old[["approach", "dataset", "primary", "wall_time"]],
+                                        on=["approach", "dataset"], suffixes=("", "_before"))
         for ap, g in m.groupby("approach"):
-            print(f"\n== {ap}")
+            print(f"\n== {suite} {ap}")
             for _, r in g.iterrows():
-                print(f"{r.dataset:14s} {r.primary_before:8.4f} -> {r.primary:8.4f}   "
-                      f"{r.wall_time_before:6.2f}s -> {r.wall_time:6.2f}s   {r.model}")
+                flag = "  <<<" if (r.primary - r.primary_before) < -0.05 else ""
+                print(f"{r.dataset:16s} {r.primary_before:8.4f} -> {r.primary:8.4f}  "
+                      f"{r.wall_time_before:6.2f}s -> {r.wall_time:6.2f}s  {r.model}{flag}")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["run", "score"])
     ap.add_argument("--tag", required=True)
+    ap.add_argument("--suite", nargs="*", default=["r1", "r2"], choices=["r1", "r2"])
     ap.add_argument("--approaches", nargs="*", default=["A_lean", "B_portfolio", "C_rules"])
     ap.add_argument("--only", nargs="*")
-    ap.add_argument("--compare")
+    ap.add_argument("--before", nargs="*", help="suite=path/to/results.csv for a before/after listing")
     a = ap.parse_args()
     cmd_run(a) if a.cmd == "run" else cmd_score(a)
 

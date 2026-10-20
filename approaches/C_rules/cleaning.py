@@ -26,6 +26,22 @@ _ID_SUFFIX = re.compile(r"([_\s\-.](id|uuid|guid|key|no|number|code)$)|([a-z0-9]
 NA_TOKEN = "__NA__"
 
 
+def _name_tokens(name):
+    """'WheelTypeID' -> ['wheel', 'type', 'id']; 'zip_code' -> ['zip', 'code']."""
+    parts = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(name)).replace("ID", " ID")
+    return [t for t in re.split(r"[^A-Za-z0-9]+", parts.lower()) if t]
+
+
+def is_code_name(name):
+    """Names of integer-coded categoricals (used only when the type is NOT declared): zip / state / *code /
+    trailing id token."""
+    toks = _name_tokens(name)
+    if not toks:
+        return False
+    low = str(name).lower()
+    return ("zip" in low or any(t in ("state", "code") or t.endswith("code") for t in toks) or toks[-1] == "id")
+
+
 def is_id_name(name):
     name = str(name).strip()
     return bool(_ID_EXACT.match(name) or _ID_SUFFIX.search(name))
@@ -119,6 +135,8 @@ def infer_column_type(s, name=""):
             d = np.diff(np.sort(vals))
             if d.size and np.all(d == 1):   # 0..n-1 / 1..n row counter
                 return "id"
+        if integer and nun > 2 and is_code_name(name):   # SH3: zip / state / code / ...ID integer codes
+            return "categorical"
         return "numeric"
     v = nn.astype(str)
     low = set(v.str.lower().unique()[:5])
