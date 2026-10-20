@@ -1,0 +1,163 @@
+version,approach,dataset,task,status,wall_time,watchdog,primary,quality_pts,profile_pts,speed_pts,total_pts,model
+original d14439d,A_lean,c_amazon,classification,ok,2.508,False,0.66745,1.67256,0.555556,0.277778,2.50589,HistGradientBoostingClassifier
+original d14439d,B_portfolio,c_amazon,classification,ok,22.161,False,0.707867,2.0432,0.555556,0.11134,2.7101,"CaruanaEnsemble(logreg:0.1053, extratrees:0.2632, hgb_b:0.0526, randomforest:0.2632, hgb_c"
+original d14439d,C_rules,c_amazon,classification,ok,5.644,False,0.696632,1.94017,0.555556,0.264234,2.75996,0.5*linear+0.5*hgb
+original d14439d,A_lean,c_cmc,classification,ok,2.388,False,0.322575,0.726704,0.555556,0,1.28226,HistGradientBoostingClassifier
+original d14439d,B_portfolio,c_cmc,classification,ok,5.919,False,0.330747,0.774903,0.555556,0,1.33046,"CaruanaEnsemble(logreg:0.5294, randomforest:0.4706)"
+original d14439d,C_rules,c_cmc,classification,ok,2.59,False,0.334801,0.798816,0.555556,0,1.35437,0.5*linear+0.5*hgb
+original d14439d,A_lean,c_credit,classification,ok,6.034,False,0.703183,2.22927,0.555556,0.256765,3.04159,HistGradientBoostingClassifier
+original d14439d,B_portfolio,c_credit,classification,ok,34.872,False,0.703771,2.23421,0.555556,0.0606618,2.85043,"CaruanaEnsemble(hgb_a:0.0357, logreg:0.3214, extratrees:0.1071, hgb_b:0.25, randomforest:0"
+original d14439d,C_rules,c_credit,classification,ok,7.345,False,0.701422,2.21448,0.555556,0.234787,3.00483,1.0*hgb
+original d14439d,A_lean,c_electricity,classification,ok,6.128,False,0.885377,3.86733,0.555556,0.255037,4.67792,HistGradientBoostingClassifier
+original d14439d,B_portfolio,c_electricity,classification,ok,33.003,False,0.882177,3.84346,0.555556,0.0668196,4.46584,"CaruanaEnsemble(hgb_a:0.6667, extratrees:0.0556, hgb_b:0.2778)"
+original d14439d,C_rules,c_electricity,classification,ok,9.012,False,0.890901,3.90853,0.555556,0.211923,4.67601,1.0*hgb
+original d14439d,A_lean,c_letter,classification,ok,20.263,False,0.919314,4.34005,0.555556,0.121349,5.01696,HistGradientBoostingClassifier
+original d14439d,B_portfolio,c_letter,classification,ok,52.179,True,0.00301543,9.44901e-17,0.555556,0,0.555556,
+original d14439d,C_rules,c_letter,classification,ok,24.197,False,0.919542,4.34113,0.555556,0.101515,4.9982,1.0*hgb
+original d14439d,A_lean,c_nomao,classification,ok,10.902,False,0.964878,4.43788,0.540293,0.19064,5.16882,HistGradientBoostingClassifier
+original d14439d,B_portfolio,c_nomao,classification,ok,32.35,False,0.964032,4.43104,0.540293,0.0690536,5.04038,"CaruanaEnsemble(hgb_a:0.3333, logreg:0.125, extratrees:0.5417)"
+original d14439d,C_rules,c_nomao,classification,ok,17.804,False,0.963766,4.42888,0.540293,0.135811,5.10498,1.0*hgb
+original d14439d,A_lean,k_banknote,clustering,ok,1.615,False,0.0132158,0.0624081,0.555556,0.277778,0.895741,KMeans
+original d14439d,B_portfolio,k_banknote,clustering,ok,2.215,False,0.00314113,0.0148331,0.555556,0,0.570389,consensus_medoid:gmm_full|std
+original d14439d,C_rules,k_banknote,clustering,ok,1.853,False,0.00244606,0.0115508,0.555556,0,0.567106,sparse_kmeans->GMM(full)
+original d14439d,A_lean,k_blobs_easy,clustering,ok,1.578,False,1,4.72222,0.555556,0.277778,5.55556,KMeans
+original d14439d,B_portfolio,k_blobs_easy,clustering,ok,3.24,False,1,4.72222,0.555556,0.277778,5.55556,consensus_medoid:kmeans|logstd
+original d14439d,C_rules,k_blobs_easy,clustering,ok,1.995,False,1,4.72222,0.555556,0.277778,5.55556,sparse_kmeans->GMM(diag)
+original d14439d,A_lean,k_dermatology,clustering,ok,1.617,False,0.911903,4.30621,0.555556,0.277778,5.13954,KMeans
+original d14439d,B_portfolio,k_dermatology,clustering,ok,2.074,False,0.894778,4.22534,0.555556,0.277778,5.05867,consensus_medoid:spectral|logstd
+original d14439d,C_rules,k_dermatology,clustering,ok,1.841,False,0.773549,3.65287,0.555556,0.277778,4.4862,sparse_kmeans->GMM(diag)
+original d14439d,A_lean,k_glass,clustering,ok,1.543,False,0.176308,0.832567,0.555556,0.277778,1.6659,KMeans
+original d14439d,B_portfolio,k_glass,clustering,ok,1.864,False,0.174718,0.825056,0.555556,0.277778,1.65839,consensus_medoid:kmeans|logstd
+original d14439d,C_rules,k_glass,clustering,ok,1.882,False,0.191092,0.902377,0.555556,0.277778,1.73571,sparse_kmeans
+original d14439d,A_lean,k_moons,clustering,ok,1.597,False,0.388839,1.83618,0.555556,0,2.39174,KMeans
+original d14439d,B_portfolio,k_moons,clustering,ok,2.345,False,0.417444,1.97126,0.555556,0.277778,2.8046,consensus_medoid:spectral|logstd
+original d14439d,C_rules,k_moons,clustering,ok,1.991,False,0.483719,2.28423,0.555556,0.277778,3.11756,sparse_kmeans->GMM(full)
+original d14439d,A_lean,k_optdigits,clustering,ok,1.77,False,0.540263,2.55124,0.555556,0.277778,3.38458,KMeans
+original d14439d,B_portfolio,k_optdigits,clustering,ok,3.754,False,0.553111,2.61191,0.555556,0.277778,3.44525,consensus_medoid:kmeans|std
+original d14439d,C_rules,k_optdigits,clustering,ok,3.971,False,0.361414,1.70668,0.555556,0,2.26223,sparse_kmeans->GMM(diag)
+original d14439d,A_lean,r_airfoil,regression,ok,3.788,False,0.845566,3.99295,0.555556,0.277778,4.82628,HistGradientBoostingRegressor
+original d14439d,B_portfolio,r_airfoil,regression,ok,9.408,False,0.841801,3.97517,0.555556,0.207115,4.73784,"CaruanaEnsemble(hgb_a:0.875, extratrees:0.0625, hgb_b:0.0625)"
+original d14439d,C_rules,r_airfoil,regression,ok,2.832,False,0.830586,3.92221,0.555556,0.277778,4.75555,1.0*hgb
+original d14439d,A_lean,r_insurance,regression,ok,2.605,False,0.879558,4.15347,0.555556,0.277778,4.9868,HistGradientBoostingRegressor
+original d14439d,B_portfolio,r_insurance,regression,ok,5.912,False,0.882958,4.16952,0.555556,0.259048,4.98413,"CaruanaEnsemble(hgb_a:0.1724, ridge[log1p]:0.0345, extratrees[log1p]:0.069, hgb_b[log1p]:0"
+original d14439d,C_rules,r_insurance,regression,ok,2.666,False,0.880639,4.15857,0.555556,0.277778,4.99191,1.0*hgb[log1p]
+original d14439d,A_lean,r_metro,regression,ok,6.962,False,0.973078,4.59509,0.555556,0.240773,5.39142,HistGradientBoostingRegressor
+original d14439d,B_portfolio,r_metro,regression,ok,30.502,False,0.972217,4.59103,0.555556,0.0756291,5.22221,CaruanaEnsemble(hgb_a:1.0)
+original d14439d,C_rules,r_metro,regression,ok,52.372,True,-0.00672447,0,0.555556,0,0.555556,
+original d14439d,A_lean,r_pol,regression,ok,6.898,False,0.988737,4.66903,0.555556,0.241806,5.4664,HistGradientBoostingRegressor
+original d14439d,B_portfolio,r_pol,regression,ok,34.135,False,0.989423,4.67227,0.555556,0.0630497,5.29088,"CaruanaEnsemble(hgb_a:0.4074, hgb_a[log1p]:0.1852, extratrees:0.4074)"
+original d14439d,C_rules,r_pol,regression,ok,8.998,False,0.981252,4.63369,0.555556,0.212096,5.40134,1.0*hgb[log1p]
+original d14439d,A_lean,r_socmob,regression,ok,2.672,False,0.843031,3.98098,0.555556,0.277778,4.81431,HistGradientBoostingRegressor
+original d14439d,B_portfolio,r_socmob,regression,ok,6.045,False,0.848481,4.00672,0.555556,0.256562,4.81883,"CaruanaEnsemble(hgb_a[log1p]:0.8462, ridge[log1p]:0.1538)"
+original d14439d,C_rules,r_socmob,regression,ok,2.792,False,0.8472,4.00067,0.555556,0.277778,4.834,1.0*hgb[log1p]
+original d14439d,A_lean,r_taxi,regression,ok,3.228,False,0.41052,1.93857,0.555556,0.277778,2.7719,HistGradientBoostingRegressor
+original d14439d,B_portfolio,r_taxi,regression,ok,38.034,False,0.414825,1.9589,0.555556,0.0509592,2.56541,"CaruanaEnsemble(hgb_a[log1p]:0.1034, ridge:0.2069, extratrees:0.4138, hgb_b:0.2759)"
+original d14439d,C_rules,r_taxi,regression,ok,4.107,False,0.339416,1.6028,0.555556,0,2.15835,0.5*linear+0.5*hgb[log1p]
+round-1 fix 05dce9e,A_lean,c_amazon,classification,ok,3.074,False,0.694391,1.91962,0.555556,0.277778,2.75295,HistGradientBoostingClassifier
+round-1 fix 05dce9e,B_portfolio,c_amazon,classification,ok,6.315,False,0.711793,2.0792,0.555556,0.251677,2.88644,"CaruanaEnsemble(hgb_a:0.1364, logreg:0.1364, extratrees:0.5, hgb_b:0.2273)"
+round-1 fix 05dce9e,C_rules,c_amazon,classification,ok,5.836,False,0.696632,1.94017,0.555556,0.260495,2.75622,0.5*linear+0.5*hgb
+round-1 fix 05dce9e,A_lean,c_cmc,classification,ok,2.761,False,0.571849,2.19695,0.555556,0.277778,3.03028,blend(0.50*hgb + 0.50*lr)
+round-1 fix 05dce9e,B_portfolio,c_cmc,classification,ok,4.225,False,0.56793,2.17383,0.555556,0.277778,3.00717,"CaruanaEnsemble(hgb_a:0.3793, logreg:0.1034, extratrees:0.2414, hgb_b:0.2759)"
+round-1 fix 05dce9e,C_rules,c_cmc,classification,ok,5.07,False,0.542062,2.02126,0.555556,0.276224,2.85304,0.5*linear+0.5*hgb
+round-1 fix 05dce9e,A_lean,c_credit,classification,ok,6.876,False,0.701378,2.21412,0.555556,0.242163,3.01183,HistGradientBoostingClassifier
+round-1 fix 05dce9e,B_portfolio,c_credit,classification,ok,11.961,False,0.70488,2.24353,0.555556,0.180277,2.97936,"CaruanaEnsemble(hgb_a:0.1667, logreg:0.2083, extratrees:0.3333, hgb_b:0.2917)"
+round-1 fix 05dce9e,C_rules,c_credit,classification,ok,7.063,False,0.701422,2.21448,0.555556,0.239163,3.0092,1.0*hgb
+round-1 fix 05dce9e,A_lean,c_electricity,classification,ok,7.232,False,0.887386,3.88231,0.555556,0.23652,4.67439,HistGradientBoostingClassifier
+round-1 fix 05dce9e,B_portfolio,c_electricity,classification,ok,10.269,False,0.882508,3.84593,0.555556,0.197326,4.59881,"CaruanaEnsemble(hgb_a:0.7778, extratrees:0.1481, hgb_b:0.0741)"
+round-1 fix 05dce9e,C_rules,c_electricity,classification,ok,8.515,False,0.890901,3.90853,0.555556,0.218264,4.68235,1.0*hgb
+round-1 fix 05dce9e,A_lean,c_letter,classification,ok,28.975,False,0.933617,4.4078,0.555556,0.0813703,5.04472,blend(0.25*hgb + 0.75*et)
+round-1 fix 05dce9e,B_portfolio,c_letter,classification,ok,52.17,True,0.907211,4.28273,0.555556,0.0156318,4.85391,
+round-1 fix 05dce9e,C_rules,c_letter,classification,ok,23.37,False,0.919546,4.34115,0.555556,0.105402,5.00211,1.0*hgb
+round-1 fix 05dce9e,A_lean,c_nomao,classification,ok,10.395,False,0.965836,4.44564,0.540293,0.195963,5.1819,HistGradientBoostingClassifier
+round-1 fix 05dce9e,B_portfolio,c_nomao,classification,ok,24.489,False,0.96383,4.4294,0.540293,0.100174,5.06986,"CaruanaEnsemble(hgb_a:0.1818, extratrees:0.3182, hgb_b:0.5)"
+round-1 fix 05dce9e,C_rules,c_nomao,classification,ok,18.064,False,0.963766,4.42888,0.540293,0.134191,5.10336,1.0*hgb
+round-1 fix 05dce9e,A_lean,k_banknote,clustering,ok,2.107,False,0.00938555,0.0443206,0.555556,0,0.599876,relevance-filtered KMeans
+round-1 fix 05dce9e,B_portfolio,k_banknote,clustering,ok,2.132,False,0.0115616,0.0545964,0.555556,0,0.610152,consensus_medoid:gmm_full|std (relevance-filtered)
+round-1 fix 05dce9e,C_rules,k_banknote,clustering,ok,1.84,False,0.00244606,0.0115508,0.555556,0,0.567106,sparse_kmeans->GMM(full)
+round-1 fix 05dce9e,A_lean,k_blobs_easy,clustering,ok,2.145,False,1,4.72222,0.555556,0.277778,5.55556,KMeans -> GMM(diag)
+round-1 fix 05dce9e,B_portfolio,k_blobs_easy,clustering,ok,3.243,False,1,4.72222,0.555556,0.277778,5.55556,consensus_medoid:kmeans|std
+round-1 fix 05dce9e,C_rules,k_blobs_easy,clustering,ok,1.731,False,1,4.72222,0.555556,0.277778,5.55556,kmeans->GMM(diag)
+round-1 fix 05dce9e,A_lean,k_dermatology,clustering,ok,2.207,False,0.734021,3.46621,0.555556,0.277778,4.29955,relevance-filtered KMeans
+round-1 fix 05dce9e,B_portfolio,k_dermatology,clustering,ok,2.005,False,0.717096,3.38629,0.555556,0.277778,4.21962,consensus_medoid:ward|logstd (relevance-filtered)
+round-1 fix 05dce9e,C_rules,k_dermatology,clustering,ok,1.803,False,0.773549,3.65287,0.555556,0.277778,4.4862,sparse_kmeans->GMM(diag)
+round-1 fix 05dce9e,A_lean,k_glass,clustering,ok,2.234,False,0.176308,0.832567,0.555556,0.277778,1.6659,KMeans
+round-1 fix 05dce9e,B_portfolio,k_glass,clustering,ok,1.939,False,0.171713,0.810868,0.555556,0.277778,1.6442,consensus_medoid:kmeans|robust
+round-1 fix 05dce9e,C_rules,k_glass,clustering,ok,1.765,False,0.174718,0.825056,0.555556,0.277778,1.65839,kmeans
+round-1 fix 05dce9e,A_lean,k_moons,clustering,ok,2.441,False,0.386931,1.82717,0.555556,0,2.38273,relevance-filtered KMeans
+round-1 fix 05dce9e,B_portfolio,k_moons,clustering,ok,2.293,False,0.413167,1.95106,0.555556,0.277778,2.7844,consensus_medoid:kmeans|robust (relevance-filtered)
+round-1 fix 05dce9e,C_rules,k_moons,clustering,ok,1.981,False,0.416586,1.96721,0.555556,0.277778,2.80055,sparse_kmeans
+round-1 fix 05dce9e,A_lean,k_optdigits,clustering,ok,4.523,False,0.559382,2.64153,0.555556,0.277778,3.47486,relevance-filtered KMeans
+round-1 fix 05dce9e,B_portfolio,k_optdigits,clustering,ok,6.717,False,0.576656,2.7231,0.555556,0.244778,3.52343,consensus_medoid:kmeans|std (relevance-filtered)
+round-1 fix 05dce9e,C_rules,k_optdigits,clustering,ok,4.128,False,0.582937,2.75276,0.555556,0.277778,3.58609,sparse_kmeans
+round-1 fix 05dce9e,A_lean,r_airfoil,regression,ok,4.621,False,0.844875,3.98969,0.555556,0.277778,4.82302,HistGradientBoostingRegressor
+round-1 fix 05dce9e,B_portfolio,r_airfoil,regression,ok,6.862,False,0.843595,3.98364,0.555556,0.242391,4.78159,"CaruanaEnsemble(hgb_a:0.9167, extratrees:0.0833)"
+round-1 fix 05dce9e,C_rules,r_airfoil,regression,ok,2.528,False,0.830586,3.92221,0.555556,0.277778,4.75555,1.0*hgb
+round-1 fix 05dce9e,A_lean,r_insurance,regression,ok,3.18,False,0.879558,4.15347,0.555556,0.277778,4.9868,HistGradientBoostingRegressor[log1p]
+round-1 fix 05dce9e,B_portfolio,r_insurance,regression,ok,5.266,False,0.881439,4.16235,0.555556,0.271984,4.98989,"CaruanaEnsemble(hgb_a:0.1724, ridge[log1p]:0.0345, extratrees[log1p]:0.1034, hgb_b[log1p]:"
+round-1 fix 05dce9e,C_rules,r_insurance,regression,ok,2.631,False,0.880639,4.15857,0.555556,0.277778,4.99191,1.0*hgb[log1p]
+round-1 fix 05dce9e,A_lean,r_metro,regression,ok,7.252,False,0.97331,4.59619,0.555556,0.236211,5.38795,HistGradientBoostingRegressor
+round-1 fix 05dce9e,B_portfolio,r_metro,regression,ok,13.856,False,0.972217,4.59103,0.555556,0.163836,5.31042,CaruanaEnsemble(hgb_a:1.0)
+round-1 fix 05dce9e,C_rules,r_metro,regression,ok,11.846,False,0.976397,4.61076,0.555556,0.181357,5.34767,1.0*hgb
+round-1 fix 05dce9e,A_lean,r_pol,regression,ok,11.83,False,0.988931,4.66995,0.555556,0.181508,5.40702,HistGradientBoostingRegressor
+round-1 fix 05dce9e,B_portfolio,r_pol,regression,ok,16.769,False,0.989145,4.67096,0.555556,0.142506,5.36903,"CaruanaEnsemble(hgb_a:0.5, hgb_a[log1p]:0.2143, extratrees:0.1429, hgb_b:0.1429)"
+round-1 fix 05dce9e,C_rules,r_pol,regression,ok,8.651,False,0.981252,4.63369,0.555556,0.216493,5.40574,1.0*hgb[log1p]
+round-1 fix 05dce9e,A_lean,r_socmob,regression,ok,3.219,False,0.843031,3.98098,0.555556,0.277778,4.81431,HistGradientBoostingRegressor[log1p]
+round-1 fix 05dce9e,B_portfolio,r_socmob,regression,ok,4.323,False,0.848481,4.00672,0.555556,0.277778,4.84005,"CaruanaEnsemble(hgb_a[log1p]:0.8462, ridge[log1p]:0.1538)"
+round-1 fix 05dce9e,C_rules,r_socmob,regression,ok,2.707,False,0.8472,4.00067,0.555556,0.277778,4.834,1.0*hgb[log1p]
+round-1 fix 05dce9e,A_lean,r_taxi,regression,ok,4.351,False,0.40408,1.90816,0.555556,0.277778,2.74149,HistGradientBoostingRegressor
+round-1 fix 05dce9e,B_portfolio,r_taxi,regression,ok,8.943,False,0.416473,1.96668,0.555556,0.212782,2.73502,"CaruanaEnsemble(hgb_a[log1p]:0.125, ridge:0.125, extratrees:0.5625, hgb_b:0.1875)"
+round-1 fix 05dce9e,C_rules,r_taxi,regression,ok,4.03,False,0.339419,1.60281,0.555556,0,2.15837,0.5*linear+0.5*hgb[log1p]
+round-2 fix 98f5fe1,A_lean,c_amazon,classification,ok,3.063,False,0.705882,2.02499,0.555556,0.277778,2.85833,HistGradientBoostingClassifier
+round-2 fix 98f5fe1,B_portfolio,c_amazon,classification,ok,5.945,False,0.711793,2.0792,0.555556,0.258426,2.89319,"CaruanaEnsemble(hgb_a:0.1364, logreg:0.1364, extratrees:0.5, hgb_b:0.2273)"
+round-2 fix 98f5fe1,C_rules,c_amazon,classification,ok,5.691,False,0.696632,1.94017,0.555556,0.263307,2.75903,0.5*linear+0.5*hgb
+round-2 fix 98f5fe1,A_lean,c_cmc,classification,ok,2.684,False,0.571849,2.19695,0.555556,0.277778,3.03028,blend(0.50*hgb + 0.50*lr)
+round-2 fix 98f5fe1,B_portfolio,c_cmc,classification,ok,3.994,False,0.56793,2.17383,0.555556,0.277778,3.00717,"CaruanaEnsemble(hgb_a:0.3793, logreg:0.1034, extratrees:0.2414, hgb_b:0.2759)"
+round-2 fix 98f5fe1,C_rules,c_cmc,classification,ok,5.143,False,0.542062,2.02126,0.555556,0.274626,2.85144,0.5*linear+0.5*hgb
+round-2 fix 98f5fe1,A_lean,c_credit,classification,ok,6.346,False,0.701247,2.21301,0.555556,0.251129,3.0197,HistGradientBoostingClassifier
+round-2 fix 98f5fe1,B_portfolio,c_credit,classification,ok,11.918,False,0.70488,2.24353,0.555556,0.180679,2.97976,"CaruanaEnsemble(hgb_a:0.1667, logreg:0.2083, extratrees:0.3333, hgb_b:0.2917)"
+round-2 fix 98f5fe1,C_rules,c_credit,classification,ok,6.996,False,0.701422,2.21448,0.555556,0.240229,3.01027,1.0*hgb
+round-2 fix 98f5fe1,A_lean,c_electricity,classification,ok,6.836,False,0.887386,3.88231,0.555556,0.242815,4.68069,HistGradientBoostingClassifier
+round-2 fix 98f5fe1,B_portfolio,c_electricity,classification,ok,11.095,False,0.882508,3.84593,0.555556,0.188678,4.59016,"CaruanaEnsemble(hgb_a:0.7778, extratrees:0.1481, hgb_b:0.0741)"
+round-2 fix 98f5fe1,C_rules,c_electricity,classification,ok,8.303,False,0.890901,3.90853,0.555556,0.221082,4.68517,1.0*hgb
+round-2 fix 98f5fe1,A_lean,c_letter,classification,ok,28.802,False,0.934007,4.40965,0.555556,0.0820397,5.04724,blend(0.25*hgb + 0.75*et)
+round-2 fix 98f5fe1,B_portfolio,c_letter,classification,ok,52.153,True,0.907211,4.28273,0.555556,0.0156682,4.85395,
+round-2 fix 98f5fe1,C_rules,c_letter,classification,ok,23.836,False,0.919542,4.34113,0.555556,0.103195,4.99988,1.0*hgb
+round-2 fix 98f5fe1,A_lean,c_nomao,classification,ok,11.123,False,0.965836,4.44564,0.540293,0.188396,5.17433,HistGradientBoostingClassifier
+round-2 fix 98f5fe1,B_portfolio,c_nomao,classification,ok,15.035,False,0.964081,4.43143,0.540293,0.154708,5.12643,"CaruanaEnsemble(hgb_a:0.5556, logreg:0.1481, extratrees:0.037, hgb_b:0.2593)"
+round-2 fix 98f5fe1,C_rules,c_nomao,classification,ok,17.935,False,0.963766,4.42888,0.540293,0.134992,5.10416,1.0*hgb
+round-2 fix 98f5fe1,A_lean,k_banknote,clustering,ok,1.772,False,0.0102809,0.0485488,0.555556,0,0.604104,relevance-filtered kmeans
+round-2 fix 98f5fe1,B_portfolio,k_banknote,clustering,ok,1.918,False,0.0115616,0.0545964,0.555556,0,0.610152,consensus_medoid:gmm_full|std (relevance-filtered)
+round-2 fix 98f5fe1,C_rules,k_banknote,clustering,ok,1.771,False,0.0168874,0.0797459,0.555556,0.277778,0.913079,kmeans (sparse-weighted)
+round-2 fix 98f5fe1,A_lean,k_blobs_easy,clustering,ok,1.865,False,1,4.72222,0.555556,0.277778,5.55556,kmeans
+round-2 fix 98f5fe1,B_portfolio,k_blobs_easy,clustering,ok,3.119,False,1,4.72222,0.555556,0.277778,5.55556,consensus_medoid:kmeans|std
+round-2 fix 98f5fe1,C_rules,k_blobs_easy,clustering,ok,1.823,False,1,4.72222,0.555556,0.277778,5.55556,kmeans (unweighted)
+round-2 fix 98f5fe1,A_lean,k_dermatology,clustering,ok,1.809,False,0.927377,4.37928,0.555556,0.277778,5.21261,relevance-filtered ward
+round-2 fix 98f5fe1,B_portfolio,k_dermatology,clustering,ok,1.941,False,0.926872,4.37689,0.555556,0.277778,5.21023,consensus_medoid:kmeans|logstd (relevance-filtered)
+round-2 fix 98f5fe1,C_rules,k_dermatology,clustering,ok,1.817,False,0.704982,3.32908,0.555556,0.277778,4.16241,kmeans (sparse-weighted)
+round-2 fix 98f5fe1,A_lean,k_glass,clustering,ok,1.763,False,0.161986,0.764934,0.555556,0.277778,1.59827,kmeans
+round-2 fix 98f5fe1,B_portfolio,k_glass,clustering,ok,1.896,False,0.171713,0.810868,0.555556,0.277778,1.6442,consensus_medoid:kmeans|robust
+round-2 fix 98f5fe1,C_rules,k_glass,clustering,ok,1.939,False,0.161986,0.764934,0.555556,0.277778,1.59827,kmeans (unweighted)
+round-2 fix 98f5fe1,A_lean,k_moons,clustering,ok,1.953,False,0.388216,1.83324,0.555556,0,2.3888,relevance-filtered gmm_diag
+round-2 fix 98f5fe1,B_portfolio,k_moons,clustering,ok,2.226,False,0.413167,1.95106,0.555556,0.277778,2.7844,consensus_medoid:kmeans|robust (relevance-filtered)
+round-2 fix 98f5fe1,C_rules,k_moons,clustering,ok,1.916,False,0.416586,1.96721,0.555556,0.277778,2.80055,kmeans (sparse-weighted)
+round-2 fix 98f5fe1,A_lean,k_optdigits,clustering,ok,4.512,False,0.595259,2.81094,0.555556,0.277778,3.64428,relevance-filtered gmm_full
+round-2 fix 98f5fe1,B_portfolio,k_optdigits,clustering,ok,6.313,False,0.582937,2.75276,0.555556,0.251712,3.56002,consensus_medoid:kmeans|sparse_w (relevance-filtered)
+round-2 fix 98f5fe1,C_rules,k_optdigits,clustering,ok,5.314,False,0.714838,3.37562,0.555556,0.270969,4.20215,ward (sparse-weighted)
+round-2 fix 98f5fe1,A_lean,r_airfoil,regression,ok,4.277,False,0.844875,3.98969,0.555556,0.277778,4.82302,HistGradientBoostingRegressor
+round-2 fix 98f5fe1,B_portfolio,r_airfoil,regression,ok,6.81,False,0.843595,3.98364,0.555556,0.243241,4.78244,"CaruanaEnsemble(hgb_a:0.9167, extratrees:0.0833)"
+round-2 fix 98f5fe1,C_rules,r_airfoil,regression,ok,2.534,False,0.830586,3.92221,0.555556,0.277778,4.75555,1.0*hgb
+round-2 fix 98f5fe1,A_lean,r_insurance,regression,ok,2.668,False,0.879558,4.15347,0.555556,0.277778,4.9868,HistGradientBoostingRegressor[log1p]
+round-2 fix 98f5fe1,B_portfolio,r_insurance,regression,ok,4.851,False,0.881177,4.16111,0.555556,0.277778,4.99445,"CaruanaEnsemble(hgb_a[log1p]:0.1034, ridge[log1p]:0.0345, extratrees[log1p]:0.1034, hgb_b["
+round-2 fix 98f5fe1,C_rules,r_insurance,regression,ok,2.823,False,0.880639,4.15857,0.555556,0.277778,4.99191,1.0*hgb[log1p]
+round-2 fix 98f5fe1,A_lean,r_metro,regression,ok,7.497,False,0.97331,4.59619,0.555556,0.232497,5.38424,HistGradientBoostingRegressor
+round-2 fix 98f5fe1,B_portfolio,r_metro,regression,ok,13.416,False,0.972217,4.59103,0.555556,0.167444,5.31403,CaruanaEnsemble(hgb_a:1.0)
+round-2 fix 98f5fe1,C_rules,r_metro,regression,ok,11.075,False,0.976397,4.61076,0.555556,0.18888,5.3552,1.0*hgb
+round-2 fix 98f5fe1,A_lean,r_pol,regression,ok,12.485,False,0.988931,4.66995,0.555556,0.175484,5.40099,HistGradientBoostingRegressor
+round-2 fix 98f5fe1,B_portfolio,r_pol,regression,ok,16.824,False,0.983376,4.64372,0.555556,0.14214,5.34142,CaruanaEnsemble(hgb_a[log1p]:1.0)
+round-2 fix 98f5fe1,C_rules,r_pol,regression,ok,10.242,False,0.989222,4.67133,0.555556,0.197621,5.4245,1.0*hgb
+round-2 fix 98f5fe1,A_lean,r_socmob,regression,ok,2.731,False,0.843031,3.98098,0.555556,0.277778,4.81431,HistGradientBoostingRegressor[log1p]
+round-2 fix 98f5fe1,B_portfolio,r_socmob,regression,ok,4.153,False,0.848481,4.00672,0.555556,0.277778,4.84005,"CaruanaEnsemble(hgb_a[log1p]:0.8462, ridge[log1p]:0.1538)"
+round-2 fix 98f5fe1,C_rules,r_socmob,regression,ok,2.868,False,0.8472,4.00067,0.555556,0.277778,4.834,1.0*hgb[log1p]
+round-2 fix 98f5fe1,A_lean,r_taxi,regression,ok,4.024,False,0.40408,1.90816,0.555556,0.277778,2.74149,HistGradientBoostingRegressor
+round-2 fix 98f5fe1,B_portfolio,r_taxi,regression,ok,8.954,False,0.416473,1.96668,0.555556,0.212644,2.73488,"CaruanaEnsemble(hgb_a[log1p]:0.125, ridge:0.125, extratrees:0.5625, hgb_b:0.1875)"
+round-2 fix 98f5fe1,C_rules,r_taxi,regression,ok,4.261,False,0.406999,1.92194,0.555556,0.277778,2.75527,0.5*linear+0.5*hgb

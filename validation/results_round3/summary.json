@@ -1,0 +1,451 @@
+{
+ "scoring": {
+  "quality": "per dataset 85/18 pts x norm, norm = clip((m - trivial) / (1 - trivial), 0, 1); m = macro-F1 / R2 / ARI; trivial = macro-F1 of the majority class on the test set / 0 / 0; crash, timeout or invalid output = 0",
+  "quality_alt": "same but norm_rel = clip((m - trivial) / (best - trivial), 0, 1), best = best of A/B/C and the two sklearn baselines",
+  "profile": "per dataset 10/18 pts x mean of 14 field scores in [0,1] (see profile_fields)",
+  "speed": "per dataset 5/18 pts x f(t) x useful; f(t) = 1 for t <= 5 s, 1 - ln(t/5)/ln(12) for 5 < t < 60, 0 beyond; useful = valid and (norm >= 0.5 or norm >= 0.9 x norm of the sklearn HGB/KMeans baseline)"
+ },
+ "head_round3": {
+  "A_lean": {
+   "quality": 57.03,
+   "quality_rel": 77.468,
+   "profile": 9.985,
+   "speed": 3.95,
+   "total": 70.965,
+   "per_task_quality": {
+    "classification": 19.173,
+    "regression": 23.298,
+    "clustering": 14.559
+   },
+   "per_task_mean_primary": {
+    "classification": 0.7944,
+    "regression": 0.8223,
+    "clustering": 0.5139
+   },
+   "n_ok": 18,
+   "statuses": {
+    "ok": 18
+   },
+   "wall_median": 3.54,
+   "wall_max": 28.8,
+   "wall_p90": 11.53
+  },
+  "B_portfolio": {
+   "quality": 57.078,
+   "quality_rel": 78.026,
+   "profile": 9.985,
+   "speed": 3.76,
+   "total": 70.822,
+   "per_task_quality": {
+    "classification": 19.057,
+    "regression": 23.353,
+    "clustering": 14.668
+   },
+   "per_task_mean_primary": {
+    "classification": 0.7897,
+    "regression": 0.8242,
+    "clustering": 0.5177
+   },
+   "n_ok": 18,
+   "statuses": {
+    "ok": 18
+   },
+   "wall_median": 6.13,
+   "wall_max": 52.15,
+   "wall_p90": 15.57
+  },
+  "C_rules": {
+   "quality": 56.379,
+   "quality_rel": 77.439,
+   "profile": 9.985,
+   "speed": 4.395,
+   "total": 70.758,
+   "per_task_quality": {
+    "classification": 18.854,
+    "regression": 23.285,
+    "clustering": 14.239
+   },
+   "per_task_mean_primary": {
+    "classification": 0.7857,
+    "regression": 0.8218,
+    "clustering": 0.5025
+   },
+   "n_ok": 18,
+   "statuses": {
+    "ok": 18
+   },
+   "wall_median": 4.7,
+   "wall_max": 23.84,
+   "wall_p90": 13.13
+  }
+ },
+ "baselines_quality_round3": {
+  "sk_hgb": {
+   "total": 39.669,
+   "classification": 17.025,
+   "regression": 22.643,
+   "clustering": 0.0
+  },
+  "sk_kmeans": {
+   "total": 13.512,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 13.512
+  },
+  "sk_kmeans_raw": {
+   "total": 9.436,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 9.436
+  },
+  "sk_linear": {
+   "total": 28.459,
+   "classification": 14.225,
+   "regression": 14.234,
+   "clustering": 0.0
+  },
+  "trivial": {
+   "total": 0.0,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 0.0
+  }
+ },
+ "versions_round3": {
+  "original d14439d": {
+   "A_lean": {
+    "quality": 54.915,
+    "quality_rel": 73.953,
+    "profile": 9.985,
+    "speed": 4.084,
+    "total": 68.984,
+    "per_task_quality": {
+     "classification": 17.274,
+     "regression": 23.33,
+     "clustering": 14.311
+    },
+    "wall_median": 2.64,
+    "wall_max": 20.26,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 51.071,
+    "quality_rel": 69.667,
+    "profile": 9.985,
+    "speed": 2.609,
+    "total": 63.665,
+    "per_task_quality": {
+     "classification": 13.327,
+     "regression": 23.374,
+     "clustering": 14.371
+    },
+    "wall_median": 7.73,
+    "wall_max": 52.18,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 49.23,
+    "quality_rel": 67.315,
+    "profile": 9.985,
+    "speed": 3.105,
+    "total": 62.319,
+    "per_task_quality": {
+     "classification": 17.632,
+     "regression": 18.318,
+     "clustering": 13.28
+    },
+    "wall_median": 3.4,
+    "wall_max": 52.37,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  },
+  "round-1 fix 05dce9e": {
+   "A_lean": {
+    "quality": 55.899,
+    "quality_rel": 77.092,
+    "profile": 9.985,
+    "speed": 3.952,
+    "total": 69.835,
+    "per_task_quality": {
+     "classification": 19.066,
+     "regression": 23.298,
+     "clustering": 13.534
+    },
+    "wall_median": 3.78,
+    "wall_max": 28.98,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 56.084,
+    "quality_rel": 77.867,
+    "profile": 9.985,
+    "speed": 3.69,
+    "total": 69.759,
+    "per_task_quality": {
+     "classification": 19.055,
+     "regression": 23.381,
+     "clustering": 13.648
+    },
+    "wall_median": 6.52,
+    "wall_max": 52.17,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 55.715,
+    "quality_rel": 75.913,
+    "profile": 9.985,
+    "speed": 3.854,
+    "total": 69.553,
+    "per_task_quality": {
+     "classification": 18.854,
+     "regression": 22.929,
+     "clustering": 13.932
+    },
+    "wall_median": 4.08,
+    "wall_max": 23.37,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  },
+  "round-2 fix 98f5fe1": {
+   "A_lean": {
+    "quality": 57.03,
+    "quality_rel": 77.468,
+    "profile": 9.985,
+    "speed": 3.95,
+    "total": 70.965,
+    "per_task_quality": {
+     "classification": 19.173,
+     "regression": 23.298,
+     "clustering": 14.559
+    },
+    "wall_median": 3.54,
+    "wall_max": 28.8,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 57.078,
+    "quality_rel": 78.026,
+    "profile": 9.985,
+    "speed": 3.76,
+    "total": 70.822,
+    "per_task_quality": {
+     "classification": 19.057,
+     "regression": 23.353,
+     "clustering": 14.668
+    },
+    "wall_median": 6.13,
+    "wall_max": 52.15,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 56.379,
+    "quality_rel": 77.439,
+    "profile": 9.985,
+    "speed": 4.395,
+    "total": 70.758,
+    "per_task_quality": {
+     "classification": 18.854,
+     "regression": 23.285,
+     "clustering": 14.239
+    },
+    "wall_median": 4.7,
+    "wall_max": 23.84,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  }
+ },
+ "recheck_head": {
+  "r1": {
+   "A_lean": {
+    "quality": 62.71,
+    "quality_rel": 82.073,
+    "profile": 10.0,
+    "speed": 4.655,
+    "total": 77.365,
+    "per_task_quality": {
+     "classification": 16.949,
+     "regression": 24.208,
+     "clustering": 21.553
+    },
+    "wall_median": 2.8,
+    "wall_max": 17.17,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 62.116,
+    "quality_rel": 81.37,
+    "profile": 10.0,
+    "speed": 4.294,
+    "total": 76.41,
+    "per_task_quality": {
+     "classification": 16.666,
+     "regression": 24.16,
+     "clustering": 21.289
+    },
+    "wall_median": 4.79,
+    "wall_max": 19.44,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 62.526,
+    "quality_rel": 81.61,
+    "profile": 10.0,
+    "speed": 4.715,
+    "total": 77.242,
+    "per_task_quality": {
+     "classification": 16.291,
+     "regression": 24.142,
+     "clustering": 22.093
+    },
+    "wall_median": 3.49,
+    "wall_max": 17.3,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  },
+  "r2": {
+   "A_lean": {
+    "quality": 59.02,
+    "quality_rel": 82.303,
+    "profile": 10.0,
+    "speed": 4.381,
+    "total": 73.4,
+    "per_task_quality": {
+     "classification": 19.015,
+     "regression": 23.997,
+     "clustering": 16.008
+    },
+    "wall_median": 3.83,
+    "wall_max": 29.8,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 59.479,
+    "quality_rel": 83.439,
+    "profile": 10.0,
+    "speed": 3.934,
+    "total": 73.413,
+    "per_task_quality": {
+     "classification": 19.052,
+     "regression": 24.219,
+     "clustering": 16.207
+    },
+    "wall_median": 7.31,
+    "wall_max": 25.22,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 59.18,
+    "quality_rel": 83.049,
+    "profile": 10.0,
+    "speed": 4.403,
+    "total": 73.583,
+    "per_task_quality": {
+     "classification": 19.444,
+     "regression": 24.022,
+     "clustering": 15.714
+    },
+    "wall_median": 4.21,
+    "wall_max": 28.77,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  }
+ },
+ "recheck_max_abs_diff": 4.999999999999449e-05,
+ "onethread": {
+  "A_lean": {
+   "median_1thr": 3.44,
+   "max_1thr": 35.67,
+   "max_dataset": "c_letter",
+   "n_over_40s": 0,
+   "n_over_30s": 1,
+   "watchdog": 0,
+   "total_1thr": 70.821
+  },
+  "B_portfolio": {
+   "median_1thr": 6.6,
+   "max_1thr": 52.13,
+   "max_dataset": "c_letter",
+   "n_over_40s": 1,
+   "n_over_30s": 1,
+   "watchdog": 1,
+   "total_1thr": 70.784
+  },
+  "C_rules": {
+   "median_1thr": 4.62,
+   "max_1thr": 28.66,
+   "max_dataset": "c_letter",
+   "n_over_40s": 0,
+   "n_over_30s": 0,
+   "watchdog": 0,
+   "total_1thr": 70.606
+  }
+ },
+ "determinism": [
+  {
+   "check": "1thread_vs_2thread",
+   "approach": "A_lean",
+   "sum": 17,
+   "count": 18
+  },
+  {
+   "check": "1thread_vs_2thread",
+   "approach": "B_portfolio",
+   "sum": 13,
+   "count": 18
+  },
+  {
+   "check": "1thread_vs_2thread",
+   "approach": "C_rules",
+   "sum": 17,
+   "count": 18
+  },
+  {
+   "check": "rerun_2threads",
+   "approach": "A_lean",
+   "sum": 2,
+   "count": 2
+  },
+  {
+   "check": "rerun_2threads",
+   "approach": "B_portfolio",
+   "sum": 2,
+   "count": 2
+  },
+  {
+   "check": "rerun_2threads",
+   "approach": "C_rules",
+   "sum": 2,
+   "count": 2
+  }
+ ]
+}
