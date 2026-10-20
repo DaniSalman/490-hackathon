@@ -143,11 +143,13 @@ def _classification(task, prep, budget, emit, log):
         A, B = cap_cat_codes(mask, params["max_bins"], A, B)
     cw = None
     if imb > 3:
-        cw = capped_balanced_weights(counts) if C == 2 else sqrt_balanced_weights(counts)
+        # one rule for binary and multiclass (round 2): sqrt-balanced weights + OOF decision tuning. Full
+        # balancing is redundant with the tuned decision rule and distorts the early-stopping loss.
+        cw = sqrt_balanced_weights(counts)
         params["class_weight"] = cw
     params["categorical_features"] = mask if mask.any() else None
     info.update(imbalance_ratio=float(imb),
-                class_weight=None if cw is None else ("balanced_capped" if C == 2 else "sqrt_balanced"))
+                class_weight=None if cw is None else "sqrt_balanced")
 
     # quick model on <= 5k rows: a good answer on disk within seconds + cost probe for the guard
     timer = FitTimer()
@@ -368,12 +370,6 @@ def _clip(p, y):
 
 
 # --------------------------------------------------------------------------- clustering
-DROP_REL_WEIGHT = 0.05   # sparse weight < 5 % of the largest -> "clearly irrelevant"
-GMM_STABILITY = 0.80     # mean pairwise ARI of 3 GMM initialisations
-GMM_AGREEMENT = 0.60     # ARI between GMM and KMeans partitions
-GMM_BIC_GAIN = 30.0      # % BIC improvement over a spherical (KMeans-like) mixture (drybean: +25 % was a worse partition)
-
-
 def _concat(a, b):
     import pandas as pd
     return a if b is None else pd.concat([a, b], axis=0, ignore_index=True)
@@ -381,8 +377,6 @@ def _concat(a, b):
 
 def _clustering(task, prep, budget, emit, log):
     from sklearn.cluster import KMeans
-    from sklearn.metrics import adjusted_rand_score as ARI
-    from sklearn.mixture import GaussianMixture
     import feature_weighting as FW
 
     num, cat = _concat(prep.num_tr, prep.num_te), _concat(prep.cat_tr, prep.cat_te)
@@ -395,77 +389,41 @@ def _clustering(task, prep, budget, emit, log):
         k = choose_k_silhouette(X)
         info["k_chosen_by_silhouette"] = int(k)
     k = int(min(k, n))
-    n_init = 30 if n <= 5000 else (10 if n <= 50000 else 4)
-
-    def kmeans(Z):
-        if Z.shape[1] > 30:                   # wide: PCA to 90 % variance first
-            from sklearn.decomposition import PCA
-            sub = Z if len(Z) <= 20000 else Z[np.random.RandomState(SEED).choice(len(Z), 20000, replace=False)]
-            Z = PCA(n_components=0.9, svd_solver="full", random_state=SEED).fit(sub).transform(Z)
-        return KMeans(k, n_init=n_init, random_state=SEED).fit(Z), Z
-
-    km, Xk = kmeans(X)
-    labels = km.labels_
-    emit(ensure_k_labels(labels, Xk, k)[-n_pred:], "kmeans_all_features")
+    km = KMeans(k, n_init=10 if n <= 20000 else 4, random_state=SEED).fit(X)
+    emit(ensure_k_labels(km.labels_, X, k)[-n_pred:], "kmeans_all_features")
     if k < 2 or n < 10:
         return info
 
-    # 1) relevance filter (group-aware sparse k-means); informative categoricals are protected
+    # 1) relevance filter: low sparse weight AND confirmed by a permutation test (shared SH1)
+    keep = list(range(len(groups)))
     if len(groups) >= 3 and budget.has(RESERVE + 4):
-        base_ratio = FW.group_ratio(X, labels, groups)
         r = FW.fit_sparse(X, groups, k, budget)
-        w = r["w"]
-        drop = w < DROP_REL_WEIGHT * w.max()
-        num_ratio = base_ratio[~is_cat]
-        protect = is_cat & (base_ratio >= (np.median(num_ratio) if len(num_ratio) else 0.0))
-        drop &= ~protect
-        info["sparse_weights"] = {names[g]: round(float(w[g]), 4) for g in range(len(groups))}
-        info["sparsity_s"] = r["s"]
-        if drop.any() and not drop.all():
+        drop, diag = FW.relevance_filter(X, groups, k, r["w"])
+        info["sparse_weights"] = {names[g]: round(float(r["w"][g]), 4) for g in range(len(groups))}
+        info["relevance_tests"] = {names[g]: v for g, v in diag.items()}
+        if drop.any():
+            keep = [g for g in range(len(groups)) if not drop[g]]
             info["dropped_irrelevant"] = [names[g] for g in range(len(groups)) if drop[g]]
-            cols = np.concatenate([groups[g] for g in range(len(groups)) if not drop[g]])
-            X = X[:, cols]
-            km, Xk = kmeans(X)
-            labels = km.labels_
-            info["model"] = "relevance-filtered KMeans"
-            emit(ensure_k_labels(labels, Xk, k)[-n_pred:], "filtered_kmeans")
+    cols = np.concatenate([groups[g] for g in keep])
+    num_keep = [g for g in keep if not is_cat[g]]
+    Xf = X[:, cols]
+    # continuous columns inside Xf (for the GMM-diag candidate)
+    pos = {c: i for i, c in enumerate(cols)}
+    num_cols = np.array([pos[c] for g in num_keep for c in groups[g]], int) if num_keep else None
+    if Xf.shape[1] > 30:                       # wide: PCA to 90 % variance first (lean)
+        from sklearn.decomposition import PCA
+        sub = Xf if n <= 20000 else Xf[np.random.RandomState(SEED).choice(n, 20000, replace=False)]
+        Xf = PCA(n_components=0.9, svd_solver="full", random_state=SEED).fit(sub).transform(Xf)
+        num_cols = None
+        info["pca_components"] = int(Xf.shape[1])
 
-    # 2) GMM only when stable, in agreement with KMeans and strongly better in BIC
-    p = Xk.shape[1]
-    if n >= 20 * k and budget.has(RESERVE + 3):
-        fit_idx = np.arange(n) if n <= 20000 else np.random.RandomState(SEED).choice(n, 20000, replace=False)
-        Z = Xk[fit_idx]
-        try:
-            centers = km.cluster_centers_
-            bs = GaussianMixture(k, covariance_type="spherical", means_init=centers, reg_covar=1e-4,
-                                 random_state=SEED).fit(Z).bic(Z)
-            best, diag = None, {}
-            for cov in ("diag", "full"):
-                if cov == "full" and not (p <= 4 or len(Z) >= 10 * k * p * (p + 1) / 2):
-                    continue
-                if not budget.has(RESERVE + 2):
-                    break
-                gms = [GaussianMixture(k, covariance_type=cov, means_init=centers if s == 0 else None,
-                                       reg_covar=1e-4, random_state=s).fit(Z) for s in range(3)]
-                labs = [g.predict(Z) for g in gms]
-                stab = float(np.mean([ARI(labs[i], labs[j]) for i in range(3) for j in range(i + 1, 3)]))
-                agree = float(ARI(labels[fit_idx], labs[0]))
-                gain = float((bs - gms[0].bic(Z)) / abs(bs) * 100)
-                full_lab = gms[0].predict(Xk)
-                sizes = np.bincount(full_lab, minlength=k)
-                ok = (stab >= GMM_STABILITY and agree >= GMM_AGREEMENT and gain >= GMM_BIC_GAIN
-                      and sizes.min() >= max(2, 0.01 * n))
-                diag[cov] = {"stability": round(stab, 3), "agreement": round(agree, 3),
-                             "bic_gain_pct": round(gain, 2), "accepted": bool(ok)}
-                if ok and (best is None or gain > best[0]):
-                    best = (gain, cov, full_lab)
-            info["gmm_checks"] = diag
-            if best is not None:
-                labels = best[2]
-                info["model"] = info["model"] + f" -> GMM({best[1]})"
-        except Exception as e:  # noqa: BLE001
-            info["gmm_error"] = repr(e)[:120]
-    labels = ensure_k_labels(labels, Xk, k)
-    info.update(k=k, n_init=n_init)
+    # 2) small candidate set, chosen by agreement (medoid); no BIC-gain acceptance (SH2)
+    cands = FW.candidate_partitions(Xf, num_cols, k, budget, RESERVE)
+    if "kmeans" in cands:
+        emit(ensure_k_labels(cands["kmeans"], Xf, k)[-n_pred:], "kmeans_filtered")
+    pick, scores = FW.agreement_medoid(cands)
+    info.update(candidates=list(cands), agreement=scores, k=k)
+    info["model"] = ("relevance-filtered " if "dropped_irrelevant" in info else "") + pick
+    labels = ensure_k_labels(cands[pick], Xf, k)
     emit(labels[-n_pred:], "final")
     return info
