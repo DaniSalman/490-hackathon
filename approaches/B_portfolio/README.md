@@ -1,40 +1,43 @@
-# Approach B -- Time-budgeted portfolio + greedy ensemble selection
+# Approach B -- Portfolio + greedy ensemble selection (deterministic plan)
 
-**Philosophy:** let validation decide. Evaluate a diverse portfolio on the same folds under the time
-budget, then build a Caruana-style ensemble from the out-of-fold predictions.
+**Philosophy:** let validation decide. Evaluate a diverse portfolio on the same folds, then build a
+Caruana-style ensemble from the out-of-fold predictions.
 
 ## Pipeline per task
-- **Supervised portfolio** (run in this order; a candidate is skipped when its projected cost, estimated
-  from the first model's time, exceeds the remaining budget, and aborted mid-CV if it overruns):
-  1. `hgb_a` HistGB lr 0.1, 31 leaves (+ a `log1p`-target variant for skewed non-negative regression targets)
-  2. L2 logistic regression / RidgeCV on scaled numeric + missing indicators + one-hot
-  3. ExtraTrees (300 trees; row-subsampled when n > 30k)
-  4. `hgb_b` conservative HistGB (lr 0.04, 15 leaves, l2 3, feature subsampling)
-  5. RandomForest
-  6. kNN (distance-weighted, only n <= 30k)
-  7. `hgb_c` deep HistGB (63 leaves, n >= 2000)
+- A quick HistGB (<= 5k rows) is written first (anytime answer + cost probe).
+- **Deterministic portfolio** decided by size/shape only (no wall-clock luck; the clock is only a safety
+  abort at the 40 s budget), in this order:
+  1. `hgb_a` HistGB lr 0.1, 31 leaves (+ a `log1p` variant for skewed non-negative regression targets)
+  2. L2 logistic regression / RidgeCV on scaled numeric + missing indicators + one-hot (width-capped)
+  3. ExtraTrees (200 trees; 100 trees on <= 8000-row bootstrap samples when n > 10k)
+  4. `hgb_b` conservative HistGB (lr 0.06, 15 leaves, l2 3, feature subsampling)
+  5. RandomForest (same size rule as ExtraTrees)
+  6. kNN (distance-weighted; only n <= 10k)
+  7. `hgb_c` deep HistGB (63 leaves; only 2000 <= n <= 10k)
 
-  All use capped balanced class weights when imbalance ratio > 3; in regression the non-anchor models reuse
-  the target transform that won for `hgb_a`. 5-fold CV (3 when n > 30k); fold models averaged on test.
-- **Ensemble:** greedy forward selection with replacement (Caruana et al. 2004, 30 steps) maximising OOF
-  macro-F1 (tiny log-loss tie-break) / minimising OOF RMSE; then OOF class-weight tuning for macro-F1
-  (kept if gain > 0.003). The best single model is emitted as soon as it exists (anytime).
-- **Clustering:** feature views {standardised, log+standardised, robust-scaled, PCA-whitened} x algorithms
-  {KMeans, GMM (full covariance if <= 12 dims, else diag), Ward (n <= 8000), spectral nearest-neighbour
-  graph (n <= 2500)}; candidates must produce exactly k clusters. The **consensus partition** -- the
-  medoid candidate by mean pairwise ARI to all others -- is returned; near-ties broken by silhouette.
+  **Stopping rule:** after the first 3 candidates, the search stops as soon as the last candidate improved
+  the ensemble's OOF score (macro-F1 / R2) by < 0.002.
+- **Ensemble:** greedy forward selection with replacement (Caruana et al. 2004, 30 steps) on OOF predictions;
+  then OOF class-weight tuning for macro-F1. **Linear members** are clipped to the training target range
+  (log space when log1p) and, for test rows outside the training range of any numeric feature, the linear
+  members' share is removed and the other members renormalised (no extrapolation of outliers).
+- **Clustering:** group-aware sparse k-means first acts as a relevance filter: clearly irrelevant
+  features (weight < 5 % of the largest; informative categoricals protected) are removed from EVERY view and
+  a sparse-weighted view is added; then views {standardised, log+standardised, robust, PCA-whitened,
+  sparse-weighted} x {KMeans, GMM, Ward (n <= 8000), spectral (n <= 2500)}; the **consensus partition**
+  (medoid by mean pairwise ARI) is returned; near-ties broken by silhouette.
 
 ## Known weaknesses
-- Slowest approach (dev: up to ~29 s at 2 threads); on a much weaker CPU it degrades gracefully to fewer
-  candidates, but speed points will be lower.
+- Still the slowest approach (but now <= ~18 s on the suite at 2 threads, was 34 s).
+- Consensus clustering follows the majority: when most algorithms agree on a KMeans-like partition but
+  a full-covariance GMM is right (iris), B returns the majority answer.
 - Ensemble selection on small data can overfit the OOF predictions slightly.
-- Consensus clustering follows the majority of views: if most views are fooled by irrelevant features
-  (dev: blobs + noise ARI 0.43), so is the consensus.
 
 ## How to run
 
 ```
-py -m pip install -r requirements.txt          # Python 3.14 tested; pinned versions
+py -m pip install -r requirements.txt          # pinned versions (tested: Python 3.14.7)
+py -m compileall -q .                          # warm-up: pre-compile .pyc (see "Cold start" below)
 py main.py --data <dataset_dir> --out <out_dir> [--time-budget 40] [--n-jobs N]
 py main.py --train train.csv --test test.csv --meta metadata.json --out <out_dir>
 ```
@@ -42,64 +45,96 @@ py main.py --train train.csv --test test.csv --meta metadata.json --out <out_dir
 Dataset folder format and outputs: see `docs/02_contract_and_dataset_format.md` in the repo root.
 Outputs: `<out_dir>/predictions.csv` (`row_index[,<id_column>],prediction`) and `<out_dir>/profile.json`.
 
+**Cold start / warm-up.** The very first import of scikit-learn after installation can take tens of
+seconds (we measured 59 s once on Windows: `.pyc` compilation + antivirus scanning of the DLLs), which
+would count against the 60 s limit. Run `py -m compileall -q .` in this folder and one throw-away run
+(e.g. on any small dataset) after `pip install`, before the timed assessment. Later runs start in ~1.5 s.
+
+**Verified library versions.** Pinned stack (`requirements.txt`): numpy 2.5.3, pandas 3.0.6,
+scipy 1.18.1, scikit-learn 1.9.1 (fresh venv `pip install -r requirements.txt` + run, OK). Older stack
+also verified on the dev + suite smoke sets: numpy 2.3.5, pandas 2.3.3, scipy 1.16.3, scikit-learn 1.7.2
+(the oldest versions with Python 3.14 wheels). Version-dependent APIs are guarded (`TargetEncoder` >= 1.3,
+HistGB `max_features` >= 1.4, `pd.to_datetime(format="mixed")` >= 2.0); scikit-learn >= 1.4 and
+pandas >= 2.0 are expected, older versions are untested.
+
 ## Files (self-contained: nothing is imported from outside this folder)
 
 | file | role |
 |---|---|
 | `main.py` | entry point; starts the budget clock before imports; writes a constant fallback at once; watchdog exits at budget+12 s with the best predictions already on disk |
 | `io_contract.py` | the ONLY contract-specific module (dataset/metadata loading with key aliases, output writing, profile key mapping) |
-| `data_profile.py` | structured data profile on the raw training table (schema in docs/01 section 4.1) |
-| `cleaning.py` | type inference (numeric / categorical / boolean / datetime / text / id / constant), numeric-as-string coercion, datetime expansion, constant / duplicate / ID dropping, text token features, encoders |
-| `utils.py` | budget, thread cap, metrics, folds, class-weight tuning, k-guarantee helpers |
+| `data_profile.py` | structured data profile on the raw training table (pandas semantics) + `blank_string_count` / `suspected_missing` fields |
+| `cleaning.py` | type inference, numeric-as-string coercion (NA-like tokens only there; literal categories such as `none` survive), datetime expansion, constant / duplicate / ID dropping, text tokens, encoders with a width cap |
+| `utils.py` | budget, thread cap, metrics, folds, class-weight tuning, subsampling, fit-cost timer, k-guarantee helpers |
+| `feature_weighting.py` | group-aware sparse k-means (one-hot blocks judged like numerics) |
 | `model.py` | **the approach-specific modelling logic** |
 
 ## Shared guarantees
 - Threads capped (`HACK_N_JOBS` / `OMP_NUM_THREADS`, default min(4, cores)); lazy imports; fixed seeds.
-- Anytime behaviour: constant fallback -> first model -> final model, each written atomically.
+- Anytime behaviour: constant fallback (< 1 s) -> quick model -> final model, each written atomically.
+- Cost guards: encoded width <= max(5 p, p + 200); per-fit cost estimated from a timed quick fit; budget
+  checked before every model fit inside the fold loops.
 - Any exception inside modelling keeps the last valid predictions; the profile is always written.
 - Clustering always returns exactly k labels `0..k-1` (k from metadata; silhouette choice if absent).
 - Classification predictions use the original label values; regression predictions are finite and clipped
   to a widened training range (>= 0 for non-negative targets).
-- Wide data (> 100 tree features): HistGB `max_bins=63` (measured ~5x faster split finding at p=400).
 
-## Smoke test (dev datasets only -- NOT the validation score)
-`py tools/run_smoke.py --approach approaches/B_portfolio --datasets dev_data --threads 2` on the 22 dev datasets
-listed in `docs/03_dev_datasets_used.md` (synthetic + 2 sklearn built-ins). Edge cases covered: string /
-boolean / partially-missing targets, a singleton class, unseen test categories, a column missing from the
-test file and an extra one added, all-NaN / constant / duplicate / ID columns, numeric-as-string, datetime,
-free text, high cardinality, tiny n (30-80 rows), 60k rows, 400 columns, single-CSV and train/test
-clustering, metadata without `task` / `feature_types` / `n_clusters`. Wall time includes interpreter
-start-up and imports (24-core dev machine, threads capped at 2).
-**All 22 runs valid, no tracebacks.** A single-thread rerun of the largest sets stayed under 33 s.
+## Results after fix round 1 (docs/05_fix_round1_changelog.md)
+Round-1 suite (Validator's 18 datasets, Validator's scoring model, 2 threads, sequential, after warm-up):
+**76.63 / 100** (quality 62.27, profile 10.00, speed 4.36);
+median / max wall time 4.9 / 17.9 s. All 18 runs valid, no watchdog exit.
 
-| dataset | task | wall s | valid | metric | model |
+| dataset | metric | round 1 | now | wall s round 1 -> now | model |
 |---|---|---|---|---|---|
-| c_bool_target_degenerate | class | 4.9 | True | macro-F1 0.866 / acc 0.867 | CaruanaEnsemble(logreg:0.625, hgb_b:0.375) |
-| c_breast_cancer | class | 5.3 | True | macro-F1 0.977 / acc 0.979 | CaruanaEnsemble(hgb_a:0.0333, logreg:0.8, extratrees:0.0333, randomfor |
-| c_edge | class | 6.5 | True | macro-F1 0.785 / acc 0.800 | CaruanaEnsemble(logreg:0.3333, extratrees:0.0741, hgb_b:0.2593, random |
-| c_large | class | 20.1 | True | macro-F1 0.949 / acc 0.949 | CaruanaEnsemble(hgb_a:1.0) |
-| c_many_classes | class | 23.1 | True | macro-F1 0.612 / acc 0.624 | CaruanaEnsemble(extratrees:0.5556, randomforest:0.4074, knn:0.037) |
-| c_multi_nonlinear | class | 28.4 | True | macro-F1 0.891 / acc 0.933 | CaruanaEnsemble(hgb_a:0.25, randomforest:0.75) |
-| c_synth_imb | class | 13.8 | True | macro-F1 0.849 / acc 0.959 | CaruanaEnsemble(hgb_a:0.0769, extratrees:0.3846, hgb_b:0.3462, randomf |
-| c_text_nantarget | class | 5.3 | True | macro-F1 1.000 / acc 1.000 | CaruanaEnsemble(hgb_a:1.0) |
-| c_tiny | class | 5.5 | True | macro-F1 0.472 / acc 0.500 | CaruanaEnsemble(logreg:0.3636, randomforest:0.3636, knn:0.2727) |
-| k_all_categorical | clust | 1.8 | True | ARI 0.711 / NMI 0.730 | consensus_medoid:kmeans|logstd |
-| k_aniso_scaled | clust | 2.5 | True | ARI 0.996 / NMI 0.992 | consensus_medoid:gmm_full|robust |
-| k_blobs_noise | clust | 2.2 | True | ARI 0.427 / NMI 0.518 | consensus_medoid:kmeans|logstd |
-| k_large | clust | 4.1 | True | ARI 0.996 / NMI 0.994 | consensus_medoid:kmeans|logstd |
-| k_mixed_cat | clust | 1.8 | True | ARI 0.685 / NMI 0.637 | consensus_medoid:spectral|logstd |
-| k_no_k | clust | 1.7 | True | ARI 1.000 / NMI 1.000 | consensus_medoid:kmeans|logstd |
-| k_tiny | clust | 1.6 | True | ARI 0.731 / NMI 0.798 | consensus_medoid:kmeans|logstd |
-| r_counts_datetime | regre | 12.2 | True | R2 0.964 / RMSLE 0.259 | CaruanaEnsemble(hgb_a:0.2308, hgb_a[log1p]:0.3077, hgb_b:0.0769, hgb_c |
-| r_diabetes | regre | 4.6 | True | R2 0.363 / RMSLE 0.402 | CaruanaEnsemble(ridge:0.625, extratrees:0.0417, hgb_b:0.0417, randomfo |
-| r_friedman | regre | 6.5 | True | R2 0.832 / RMSLE 0.155 | CaruanaEnsemble(hgb_a:0.1034, extratrees:0.1034, hgb_b:0.7931) |
-| r_prices_strings | regre | 5.3 | True | R2 0.910 / RMSLE 0.122 | CaruanaEnsemble(hgb_a:0.0333, ridge[log1p]:0.8333, hgb_b[log1p]:0.1333 |
-| r_tiny | regre | 3.7 | True | R2 0.972 | CaruanaEnsemble(ridge:0.9667, hgb_b:0.0333) |
-| r_wide | regre | 28.9 | True | R2 0.954 | CaruanaEnsemble(ridge:0.8182, hgb_b:0.1818) |
+| c_adult | macro-F1 | 0.8115 | 0.8143 | 23.1 -> 7.3 | CaruanaEnsemble(hgb_a:0.3, extratrees:0.4, hgb_b:0.3) |
+| c_ai4i | macro-F1 | 0.8492 | 0.8420 | 10.6 -> 4.8 | CaruanaEnsemble(hgb_a:0.4211, logreg:0.1053, extratrees:0.47 |
+| c_bank | macro-F1 | 0.7739 | 0.7750 | 27.4 -> 12.0 | CaruanaEnsemble(hgb_a:0.1923, logreg:0.0385, extratrees:0.23 |
+| c_covertype | macro-F1 | 0.6159 | 0.6059 | 32.6 -> 17.9 | CaruanaEnsemble(hgb_a:0.2174, logreg:0.087, extratrees:0.565 |
+| c_creditg | macro-F1 | 0.7037 | 0.7074 | 7.1 -> 4.9 | CaruanaEnsemble(hgb_a:0.087, logreg:0.087, extratrees:0.5217 |
+| c_telco | macro-F1 | 0.7279 | 0.7242 | 10.0 -> 5.2 | CaruanaEnsemble(logreg:1.0) |
+| k_drybean | ARI | 0.6610 | 0.6600 | 3.4 -> 4.6 | consensus_medoid:kmeans|logstd |
+| k_iris | ARI | 0.6306 | 0.5801 | 1.8 -> 1.9 | consensus_medoid:spectral|logstd (relevance-filtered) |
+| k_mall | ARI | 0.6175 | 0.6651 | 1.7 -> 1.9 | consensus_medoid:ward|sparse_w (relevance-filtered) |
+| k_penguins | ARI | 0.6534 | 0.9505 | 1.8 -> 1.9 | consensus_medoid:spectral|logstd (relevance-filtered) |
+| k_seeds | ARI | 0.7722 | 0.7722 | 1.7 -> 1.8 | consensus_medoid:kmeans|robust |
+| k_wine | ARI | 0.8975 | 0.8805 | 1.6 -> 1.9 | consensus_medoid:kmeans|std (relevance-filtered) |
+| r_abalone | R2 | 0.5751 | 0.5762 | 8.7 -> 4.3 | CaruanaEnsemble(hgb_a:0.2857, ridge[log1p]:0.25, extratrees[ |
+| r_bike | R2 | 0.9620 | 0.9625 | 33.9 -> 13.1 | CaruanaEnsemble(hgb_a:0.5263, hgb_a[log1p]:0.3158, hgb_b:0.1 |
+| r_california | R2 | 0.8433 | 0.8421 | 33.2 -> 11.4 | CaruanaEnsemble(hgb_a:0.3333, hgb_a[log1p]:0.2083, extratree |
+| r_concrete | R2 | 0.8884 | 0.8884 | 5.3 -> 4.2 | CaruanaEnsemble(hgb_a:0.5714, extratrees:0.1905, hgb_b:0.238 |
+| r_diamonds | R2 | 0.9811 | 0.9808 | 32.1 -> 9.3 | CaruanaEnsemble(hgb_a:0.1579, hgb_a[log1p]:0.2105, ridge[log |
+| r_house | R2 | 0.8211 | 0.8978 | 16.0 -> 10.3 | CaruanaEnsemble(hgb_a:0.0667, hgb_a[log1p]:0.1667, ridge[log |
+
+Dev smoke sets (docs/03; synthetic + 2 built-ins, edge cases), all valid, no tracebacks:
+
+| dataset | wall s | valid | metric |
+|---|---|---|---|
+| c_bool_target_degenerate | 3.7 | True | macro-F1 0.866 |
+| c_breast_cancer | 3.7 | True | macro-F1 0.977 |
+| c_edge | 5.5 | True | macro-F1 0.801 |
+| c_large | 21.8 | True | macro-F1 0.949 |
+| c_many_classes | 16.1 | True | macro-F1 0.588 |
+| c_multi_nonlinear | 12.8 | True | macro-F1 0.906 |
+| c_synth_imb | 9.5 | True | macro-F1 0.849 |
+| c_text_nantarget | 2.9 | True | macro-F1 1.000 |
+| c_tiny | 3.7 | True | macro-F1 0.547 |
+| k_all_categorical | 1.8 | True | ARI 0.711 |
+| k_aniso_scaled | 3.1 | True | ARI 0.976 |
+| k_blobs_noise | 1.7 | True | ARI 1.000 |
+| k_large | 5.2 | True | ARI 0.996 |
+| k_mixed_cat | 1.9 | True | ARI 0.685 |
+| k_no_k | 1.8 | True | ARI 1.000 |
+| k_tiny | 1.5 | True | ARI 0.731 |
+| r_counts_datetime | 5.7 | True | R2 0.963 |
+| r_diabetes | 3.1 | True | R2 0.363 |
+| r_friedman | 5.0 | True | R2 0.832 |
+| r_prices_strings | 3.5 | True | R2 0.910 |
+| r_tiny | 2.5 | True | R2 0.980 |
+| r_wide | 24.0 | True | R2 0.948 |
 
 ## Assumptions
 Same as `docs/01_research_report.md` section 10: folder with `train.csv`/`test.csv` (or `data.csv` for
 clustering) + `metadata.json`; imbalance-aware classification metric (we optimise macro-F1), R2/RMSE-like
-regression metric, ARI/NMI clustering metric with k given; the 60 s limit includes interpreter start-up;
-only the pinned packages are available; ID-like columns carry no signal. Needs scikit-learn >= 1.4
-(HistGB `categorical_features` mask + `class_weight`) and pandas >= 2.0 (`format="mixed"`).
+regression metric (log1p preferred on ties, in case it is RMSLE), ARI/NMI clustering metric with k given;
+the 60 s limit includes interpreter start-up; only the pinned packages are available; ID-like columns
+carry no signal.

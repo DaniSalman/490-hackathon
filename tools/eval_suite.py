@@ -88,7 +88,10 @@ def cmd_score(a):
     df = score_tag(a.tag)
     os.makedirs(os.path.join(ROOT, "runs", a.tag), exist_ok=True)
     df.to_csv(os.path.join(ROOT, "runs", a.tag, "scores.csv"), index=False, float_format="%.6g")
-    print(json.dumps(summarise(df), indent=1))
+    summ = summarise(df)
+    with open(os.path.join(ROOT, "runs", a.tag, "summary_points.json"), "w", encoding="utf-8") as f:
+        json.dump(summ, f, indent=1)
+    print(json.dumps(summ, indent=1))
     if a.compare:
         old = pd.read_csv(a.compare)
         m = df.merge(old[["approach", "dataset", "primary", "wall_time"]], on=["approach", "dataset"],

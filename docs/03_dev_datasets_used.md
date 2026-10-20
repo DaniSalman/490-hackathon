@@ -53,3 +53,11 @@ target generated from a formula).
   from datasets the Validator does not score on.
 - LightGBM/XGBoost/CatBoost are not used by any approach (assessment-environment risk, see docs/01 §6.3);
   everything is numpy/pandas/scipy/scikit-learn.
+
+## Fix round 1 (docs/05): the Validator's round-1 suite was used for re-testing
+During fix round 1 the 18 round-1 suite datasets (validation/SUITE.md) were used to check every fix
+(before/after tables in docs/05), and the clustering guard thresholds (GMM stability / agreement / BIC gain,
+the 5 % relevance cut) were checked on them together with the dev sets. **Round-1 suite scores are
+therefore optimistic from now on; round 2 must use new datasets** (none of telco, ai4i, adult, bank,
+covertype, credit-g, Ames house, bike, california, abalone, concrete, diamonds, Mall, iris, wine, seeds,
+penguins, drybean). No dataset-specific rule (names, columns, sizes) was added to any approach.
