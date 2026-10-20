@@ -6,6 +6,7 @@
     py validation/run_validation_round2.py determinism  # rerun 2 datasets per approach + B 1-thread vs 2-thread
     py validation/run_validation_round2.py stress       # round-2 stress probes
     py validation/run_validation_round2.py recheck      # fixed approaches on the ROUND-1 suite (developer claim check)
+    py validation/run_validation_round2.py prefix --prefix-root <worktree of d14439d>   # pre-fix A/B/C on round 2
     py validation/run_validation_round2.py score        # -> validation/results_round2/*
     py validation/run_validation_round2.py all
 
@@ -80,6 +81,44 @@ def cmd_stress(a):
         for ds in RV._datasets(STRESS2):
             m = RV.run_one(ap, os.path.join(STRESS2, ds), os.path.join(RUNS2, "stress", ap, ds))
             print(f"stress {ap:12s} {ds:20s} {m['wall_time']:6.2f}s {m['status']} tb={m['traceback']}", flush=True)
+
+
+def cmd_prefix(a):
+    """Pre-fix approaches (commit d14439d, checked out as a git worktree given by --prefix-root) on the
+    round-2 suite: out-of-sample measurement of what the fix round changed. Same protocol."""
+    root = os.path.abspath(a.prefix_root)
+    saved = RV.ROOT
+    RV.ROOT = root                                  # run_one() uses ROOT as the subprocess cwd
+    try:
+        base = os.path.join(RUNS2, "prefix")
+        for ap in APPROACHES:
+            RV.run_one(ap, os.path.join(SUITE2, WARMUP2), os.path.join(base, "warmup", ap))
+        for ap in APPROACHES:
+            for ds in RV._datasets(SUITE2):
+                m = RV.run_one(ap, os.path.join(SUITE2, ds), os.path.join(base, "suite", ap, ds))
+                print(f"prefix {ap:12s} {ds:14s} {m['wall_time']:6.2f}s {m['status']:8s} wd={m['watchdog']}", flush=True)
+    finally:
+        RV.ROOT = saved
+
+
+def score_prefix():
+    tmp = os.path.join(RES2, "_prefix_tmp")
+    os.makedirs(tmp, exist_ok=True)
+    shutil.copy(os.path.join(RES2, "baselines.csv"), os.path.join(tmp, "baselines.csv"))
+    saved = (RV.RUNS, RV.RESULTS, RV._determinism, RV._stress)
+    RV.RUNS, RV.RESULTS = os.path.join(RUNS2, "prefix"), tmp
+    RV._determinism = lambda: []
+    RV._stress = lambda: []
+    try:
+        RV.cmd_score(None)
+    finally:
+        RV.RUNS, RV.RESULTS, RV._determinism, RV._stress = saved
+    res = pd.read_csv(os.path.join(tmp, "results.csv"))
+    summ = json.load(open(os.path.join(tmp, "summary.json"), encoding="utf-8"))
+    res.to_csv(os.path.join(RES2, "prefix_results.csv"), index=False, float_format="%.6g")
+    shutil.rmtree(tmp)
+    return {ap: {k: v[k] for k in ("quality", "profile", "speed", "total", "per_task_quality", "wall_median",
+                                   "wall_max", "statuses")} for ap, v in summ["approaches"].items()}
 
 
 def cmd_recheck(a):
@@ -257,6 +296,9 @@ def cmd_score(a):
                                                               "total_suspected_missing_cells"]].mean().round(4).to_dict("index")
     if os.path.isdir(os.path.join(RUNS2, "r1recheck")):
         summ["round1_recheck"] = score_recheck()
+    if os.path.isdir(os.path.join(RUNS2, "prefix")):
+        _use_round2()
+        summ["prefix_on_round2"] = score_prefix()
     with open(os.path.join(RES2, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(summ, f, indent=1, default=str)
     print(json.dumps(summ.get("round1_recheck"), indent=1, default=str))
@@ -264,8 +306,9 @@ def cmd_score(a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["run", "baselines", "determinism", "stress", "recheck", "score", "all"])
+    ap.add_argument("cmd", choices=["run", "baselines", "determinism", "stress", "recheck", "prefix", "score", "all"])
     ap.add_argument("--only", nargs="*")
+    ap.add_argument("--prefix-root", help="checkout of the pre-fix commit d14439d (git worktree) for `prefix`")
     a = ap.parse_args()
     if a.cmd in ("run", "all"):
         cmd_run(a)
@@ -275,6 +318,8 @@ def main():
         cmd_stress(a)
     if a.cmd in ("recheck", "all"):
         cmd_recheck(a)
+    if a.cmd == "prefix":
+        cmd_prefix(a)
     if a.cmd in ("baselines", "all"):
         cmd_baselines(a)
     if a.cmd in ("score", "all"):

@@ -1,0 +1,55 @@
+approach,dataset,task,status,wall_time,dev_wall_after,primary,dev_after,diff_vs_dev,quality_pts,profile_pts,speed_pts,total_pts,dev_pts_after,model
+A_lean,c_adult,classification,ok,3.771,3.8,0.819908,0.8199,8e-06,3.22427,0.555556,0.277778,4.0576,4.06,HistGradientBoostingClassifier
+B_portfolio,c_adult,classification,ok,7.236,7.3,0.814251,0.8143,-4.9e-05,3.17721,0.555556,0.236458,3.96922,3.97,"CaruanaEnsemble(hgb_a:0.3, extratrees:0.4, hgb_b:0.3)"
+C_rules,c_adult,classification,ok,5.062,4.7,0.815019,0.815,1.9e-05,3.1836,0.555556,0.2764,4.01556,4.02,0.5*linear+0.5*hgb
+A_lean,c_ai4i,classification,ok,2.676,2.8,0.877866,0.8779,-3.4e-05,3.58834,0.555556,0.277778,4.42168,4.42,HistGradientBoostingClassifier
+B_portfolio,c_ai4i,classification,ok,4.784,4.8,0.842029,0.842,2.9e-05,3.25564,0.555556,0.277778,4.08897,4.09,"CaruanaEnsemble(hgb_a:0.4211, logreg:0.1053, extratrees:0.4737)"
+C_rules,c_ai4i,classification,ok,2.991,3.1,0.851652,0.8517,-4.8e-05,3.34497,0.555556,0.277778,4.17831,4.18,1.0*hgb
+A_lean,c_bank,classification,ok,5.543,5.5,0.780753,0.7808,-4.7e-05,2.77269,0.555556,0.266253,3.5945,3.59,HistGradientBoostingClassifier
+B_portfolio,c_bank,classification,ok,11.849,12,0.775017,0.775,1.7e-05,2.72168,0.555556,0.181328,3.45857,3.46,"CaruanaEnsemble(hgb_a:0.1923, logreg:0.0385, extratrees:0.2308, hgb_b:0.3462, randomforest"
+C_rules,c_bank,classification,ok,6.301,6.3,0.767415,0.7674,1.5e-05,2.65409,0.555556,0.251925,3.46157,3.46,0.5*linear+0.5*hgb
+A_lean,c_covertype,classification,ok,14.995,15,0.620296,0.6203,-4e-06,2.75002,0.555556,0.155006,3.46058,3.46,blend(0.25*hgb + 0.75*et)
+B_portfolio,c_covertype,classification,ok,17.088,17.9,0.605934,0.6059,3.4e-05,2.67543,0.555556,0.1404,3.37138,3.37,"CaruanaEnsemble(hgb_a:0.2174, logreg:0.087, extratrees:0.5652, hgb_b:0.1304)"
+C_rules,c_covertype,classification,ok,15.192,15.3,0.572105,0.5721,5e-06,2.49972,0.555556,0.153547,3.20882,3.21,1.0*hgb
+A_lean,c_creditg,classification,ok,3.264,2.6,0.687912,0.6879,1.2e-05,2.21685,0.555556,0.277778,3.05018,3.05,blend(0.25*hgb + 0.75*lr)
+B_portfolio,c_creditg,classification,ok,4.726,4.9,0.707397,0.7074,-3e-06,2.37327,0.555556,0.277778,3.2066,3.21,"CaruanaEnsemble(hgb_a:0.087, logreg:0.087, extratrees:0.5217, hgb_b:0.3043)"
+C_rules,c_creditg,classification,ok,5.555,5.6,0.668558,0.6686,-4.2e-05,2.06148,0.555556,0.266011,2.88305,2.88,0.5*linear+0.5*hgb
+A_lean,c_telco,classification,ok,2.771,2.7,0.72739,0.7274,-1e-05,2.48896,0.555556,0.277778,3.32229,3.32,HistGradientBoostingClassifier
+B_portfolio,c_telco,classification,ok,5.1,5.2,0.724237,0.7242,3.7e-05,2.46313,0.555556,0.275564,3.29425,3.29,CaruanaEnsemble(logreg:1.0)
+C_rules,c_telco,classification,ok,3.753,3.7,0.734445,0.7344,4.5e-05,2.54675,0.555556,0.277778,3.38008,3.38,0.5*linear+0.5*hgb
+A_lean,k_drybean,clustering,ok,6.042,5.6,0.660013,0.66,1.3e-05,3.11673,0.555556,0.256617,3.9289,3.94,KMeans
+B_portfolio,k_drybean,clustering,ok,4.453,4.6,0.660013,0.66,1.3e-05,3.11673,0.555556,0.277778,3.95006,3.95,consensus_medoid:kmeans|logstd
+C_rules,k_drybean,clustering,ok,3.684,3.8,0.625308,0.6253,8e-06,2.95284,0.555556,0.277778,3.78618,3.79,kmeans->GMM(full)
+A_lean,k_iris,clustering,ok,1.718,1.7,0.903874,0.9039,-2.6e-05,4.26829,0.555556,0.277778,5.10163,5.1,relevance-filtered KMeans -> GMM(full)
+B_portfolio,k_iris,clustering,ok,1.898,1.9,0.580138,0.5801,3.8e-05,2.73954,0.555556,0.277778,3.57287,3.57,consensus_medoid:spectral|logstd (relevance-filtered)
+C_rules,k_iris,clustering,ok,1.695,1.8,0.903874,0.9039,-2.6e-05,4.26829,0.555556,0.277778,5.10163,5.1,sparse_kmeans->GMM(full)
+A_lean,k_mall,clustering,ok,1.675,1.8,0.584468,0.5845,-3.2e-05,2.75999,0.555556,0.277778,3.59332,3.59,relevance-filtered KMeans
+B_portfolio,k_mall,clustering,ok,1.855,1.9,0.665099,0.6651,-1e-06,3.14075,0.555556,0.277778,3.97408,3.97,consensus_medoid:ward|sparse_w (relevance-filtered)
+C_rules,k_mall,clustering,ok,1.746,1.8,0.956126,0.9561,2.6e-05,4.51504,0.555556,0.277778,5.34837,5.35,sparse_kmeans->GMM(diag)
+A_lean,k_penguins,clustering,ok,1.769,1.7,0.893866,0.8939,-3.4e-05,4.22104,0.555556,0.277778,5.05437,5.05,relevance-filtered KMeans
+B_portfolio,k_penguins,clustering,ok,1.874,1.9,0.95054,0.9505,4e-05,4.48866,0.555556,0.277778,5.32199,5.32,consensus_medoid:spectral|logstd (relevance-filtered)
+C_rules,k_penguins,clustering,ok,1.714,1.8,0.76853,0.7685,3e-05,3.62917,0.555556,0.277778,4.4625,4.46,sparse_kmeans
+A_lean,k_seeds,clustering,ok,1.71,1.8,0.773294,0.7733,-6e-06,3.65166,0.555556,0.277778,4.485,4.49,KMeans
+B_portfolio,k_seeds,clustering,ok,1.825,1.8,0.772153,0.7722,-4.7e-05,3.64628,0.555556,0.277778,4.47961,4.48,consensus_medoid:kmeans|robust
+C_rules,k_seeds,clustering,ok,1.765,1.8,0.773294,0.7733,-6e-06,3.65166,0.555556,0.277778,4.485,4.49,kmeans
+A_lean,k_wine,clustering,ok,1.668,1.8,0.88051,0.8805,1e-05,4.15796,0.555556,0.277778,4.9913,4.99,relevance-filtered KMeans
+B_portfolio,k_wine,clustering,ok,1.867,1.9,0.88051,0.8805,1e-05,4.15796,0.555556,0.277778,4.9913,4.99,consensus_medoid:kmeans|std (relevance-filtered)
+C_rules,k_wine,clustering,ok,1.736,1.8,0.915021,0.915,2.1e-05,4.32093,0.555556,0.277778,5.15426,5.15,sparse_kmeans->GMM(diag)
+A_lean,r_abalone,regression,ok,2.837,2.9,0.55866,0.5587,-4e-05,2.63812,0.555556,0.277778,3.47145,3.47,HistGradientBoostingRegressor[log1p]
+B_portfolio,r_abalone,regression,ok,4.295,4.3,0.576155,0.5762,-4.5e-05,2.72073,0.555556,0.277778,3.55407,3.55,"CaruanaEnsemble(hgb_a:0.2857, ridge[log1p]:0.25, extratrees[log1p]:0.25, hgb_b[log1p]:0.21"
+C_rules,r_abalone,regression,ok,2.712,2.7,0.554021,0.554,2.1e-05,2.61621,0.555556,0.277778,3.44954,3.45,1.0*hgb[log1p]
+A_lean,r_bike,regression,ok,9.349,9.5,0.959852,0.9599,-4.8e-05,4.53263,0.555556,0.207819,5.29601,5.29,HistGradientBoostingRegressor[log1p]
+B_portfolio,r_bike,regression,ok,12.765,13.1,0.962518,0.9625,1.8e-05,4.54522,0.555556,0.173004,5.27378,5.27,"CaruanaEnsemble(hgb_a:0.5263, hgb_a[log1p]:0.3158, hgb_b:0.1579)"
+C_rules,r_bike,regression,ok,7.181,7.1,0.959752,0.9598,-4.8e-05,4.53216,0.555556,0.237311,5.32503,5.33,1.0*hgb[log1p]
+A_lean,r_california,regression,ok,8.472,8.6,0.84205,0.842,5e-05,3.97635,0.555556,0.21883,4.75073,4.75,HistGradientBoostingRegressor[log1p]
+B_portfolio,r_california,regression,ok,10.94,11.4,0.842102,0.8421,2e-06,3.97659,0.555556,0.190251,4.7224,4.72,"CaruanaEnsemble(hgb_a:0.3333, hgb_a[log1p]:0.2083, extratrees:0.0833, hgb_b:0.375)"
+C_rules,r_california,regression,ok,5.663,5.4,0.84065,0.8407,-5e-05,3.96973,0.555556,0.263859,4.78915,4.79,1.0*hgb[log1p]
+A_lean,r_concrete,regression,ok,2.274,2.3,0.889743,0.8897,4.3e-05,4.20157,0.555556,0.277778,5.0349,5.03,HistGradientBoostingRegressor
+B_portfolio,r_concrete,regression,ok,3.689,4.2,0.88844,0.8884,4e-05,4.19541,0.555556,0.277778,5.02874,5.03,"CaruanaEnsemble(hgb_a:0.5714, extratrees:0.1905, hgb_b:0.2381)"
+C_rules,r_concrete,regression,ok,2.848,2.8,0.881827,0.8818,2.7e-05,4.16418,0.555556,0.277778,4.99752,5,1.0*hgb
+A_lean,r_diamonds,regression,ok,5.363,5.5,0.980706,0.9807,6e-06,4.63111,0.555556,0.269943,5.45661,5.45,HistGradientBoostingRegressor[log1p]
+B_portfolio,r_diamonds,regression,ok,9.232,9.3,0.980761,0.9808,-3.9e-05,4.63137,0.555556,0.209226,5.39615,5.39,"CaruanaEnsemble(hgb_a:0.1579, hgb_a[log1p]:0.2105, ridge[log1p]:0.0526, extratrees[log1p]:"
+C_rules,r_diamonds,regression,ok,4.827,4.9,0.979973,0.98,-2.7e-05,4.62765,0.555556,0.277778,5.46098,5.46,1.0*hgb[log1p]
+A_lean,r_house,regression,ok,5.394,5.4,0.895362,0.8954,-3.8e-05,4.2281,0.555556,0.269299,5.05295,5.05,HistGradientBoostingRegressor[log1p]
+B_portfolio,r_house,regression,ok,9.841,10.3,0.897773,0.8978,-2.7e-05,4.23948,0.555556,0.202085,4.99712,4.99,"CaruanaEnsemble(hgb_a:0.0667, hgb_a[log1p]:0.1667, ridge[log1p]:0.4667, hgb_b[log1p]:0.3)"
+C_rules,r_house,regression,ok,4.814,4.6,0.896304,0.8963,4e-06,4.23255,0.555556,0.277778,5.06588,5.07,1.0*hgb[log1p]

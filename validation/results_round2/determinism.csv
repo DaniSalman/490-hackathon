@@ -1,0 +1,10 @@
+check,approach,dataset,identical,frac_rows_equal,metric_2thr,metric_1thr,model_2thr,model_1thr
+rerun_2threads,A_lean,c_kick,True,1.0,,,,
+rerun_2threads,A_lean,k_synth,True,1.0,,,,
+rerun_2threads,B_portfolio,c_kick,True,1.0,,,,
+rerun_2threads,B_portfolio,k_synth,True,1.0,,,,
+rerun_2threads,C_rules,c_kick,True,1.0,,,,
+rerun_2threads,C_rules,k_synth,True,1.0,,,,
+B_1thread_vs_2thread,B_portfolio,c_jannis,True,1.0,0.5009847840374407,0.5009847840374407,quick HistGB (budget),quick HistGB (budget)
+B_1thread_vs_2thread,B_portfolio,r_superconduct,False,0.9829333333333333,0.9117043241560514,0.9117043241560514,"CaruanaEnsemble(hgb_a:0.3448, extratrees:0.6552)","CaruanaEnsemble(hgb_a:0.3448, extratrees:0.6552)"
+B_1thread_vs_2thread,B_portfolio,c_pageblocks,True,1.0,0.8557248053179404,0.8557248053179404,"CaruanaEnsemble(hgb_a:0.069, logreg:0.1724, extratrees:0.0345, randomforest:0.62","CaruanaEnsemble(hgb_a:0.069, logreg:0.1724, extratrees:0.0345, randomforest:0.62"
