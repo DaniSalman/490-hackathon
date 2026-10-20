@@ -61,3 +61,8 @@ the 5 % relevance cut) were checked on them together with the dev sets. **Round-
 therefore optimistic from now on; round 2 must use new datasets** (none of telco, ai4i, adult, bank,
 covertype, credit-g, Ames house, bike, california, abalone, concrete, diamonds, Mall, iris, wine, seeds,
 penguins, drybean). No dataset-specific rule (names, columns, sizes) was added to any approach.
+
+## Fix round 2 (docs/07): the round-2 suite was also used
+All 36 datasets of the round-1 and round-2 suites (validation/SUITE.md, validation/SUITE_ROUND2.md) were used
+to accept or reject the round-2 changes (combined-score rule, docs/07). Both suites are now development data;
+round 3 must use new datasets. No dataset-specific rule was added.

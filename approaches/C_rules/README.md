@@ -5,44 +5,32 @@ scientist would, instead of searching a portfolio. One cheap "linearity probe" i
 test. Every decision is logged in `profile.json -> modelling.plan.rules_fired`.
 
 ## Rules (supervised)
-- A quick HistGB (100 iterations, <= 5k rows) is written **before** the probe and the CV; its fit time caps
-  HistGB iterations, and every model fit inside the fold loop is budget-checked.
-- Encoding: low-cardinality categoricals native in HistGB / one-hot for linear models; categoricals with
-  > 30 levels -> cross-fitted `TargetEncoder` with an **explicit target type** (continuous / binary /
-  multiclass), fitted inside each fold only; ordinal fallback if the encoded width would exceed
-  max(5 p, p + 200) or TargetEncoder is unavailable; datetimes -> calendar + cyclic sin/cos features.
-- Regime (first matching rule wins):
-
-  | condition | models |
-  |---|---|
-  | n < 400 | 0.5 linear + 0.5 ExtraTrees |
-  | >= 8 classes and < 150 rows per class | 0.6 ExtraTrees + 0.4 linear |
-  | > 150 encoded features and n < 10 p (regression: only if the probe's linear model beats the tree by >= 0.01 R2) | 0.5 linear + 0.5 HistGB |
-  | probe (3-fold, <= 3000 rows): classification linear >= tree - 0.005; regression linear >= tree + 0.01 | 0.5 linear + 0.5 HistGB |
-  | otherwise | HistGB with size-tiered params (n < 1k / 2k / 20k / larger) |
-
-- Imbalance ratio > 1.5 -> capped balanced weights; minority >= 20 -> OOF macro-F1 class-weight tuning.
-- Regression: `log1p` target when y >= 0 and skew > 0.75 (rule); linear members clipped to the training
-  target range in log space; final clipping.
-- Final fit: refit on 100 % of the training rows (HistGB iterations = 1.1 x median early-stopped fold
-  iterations) when the projected refit cost fits, else fold averaging.
-- No learned meta-selector (see docs/03): rules are hand-written to avoid leaking validation data.
+- Quick HistGB (<= 5k rows) written before the probe and the CV; its rate caps HistGB iterations; every model
+  fit inside the fold loop is budget-checked.
+- Encoding: low-cardinality categoricals native / one-hot; > 30 levels -> cross-fitted `TargetEncoder` with an
+  explicit target type (ordinal fallback if too wide or unavailable); datetimes -> calendar + cyclic features.
+- Regime (first matching rule): n < 400 -> 0.5 linear + 0.5 ExtraTrees; >= 8 classes and < 150 rows/class ->
+  0.6 ExtraTrees + 0.4 linear; wide (> 150 encoded features, n < 10 p) -> 0.5 linear + 0.5 HistGB (regression:
+  only if the probe's linear model beats the tree by 0.01 R2); probe linear-ish -> 0.5 linear + 0.5 HistGB;
+  otherwise size-tiered HistGB.
+- Imbalance ratio > 1.5 -> capped balanced weights; minority >= 20 -> OOF macro-F1 decision tuning.
+- Regression: `log1p` when y >= 0 and skew > 0.75, **verified by the probe** (reverted to raw when log1p loses
+  > 0.005 R2 on the probe folds); linear members clipped in log space.
+- Folds: 5 (3 when n > 20k **or n x p x classes > 5e6**, for time headroom on wide multiclass tables).
+- Refit on 100 % of the rows when the projected cost fits.
 
 ## Clustering
-1. Standardise (log1p for skewed) + one-hot/sqrt(2); KMeans on all features is emitted first.
-2. **Group-aware sparse k-means** (Witten & Tibshirani 2010): each original feature is one group and its
-   relevance is the share of its variance explained by the partition, so one-hot blocks are weighted like
-   numerics (penguins `island` is no longer crushed). The L1 bound is chosen by a permutation gap
-   statistic. The soft-weighted space is used only when some weight < 5 % of the largest (irrelevant
-   features present); otherwise the unweighted space.
-3. GMM diag / full (full only if p <= 4 or n >= 10 k p(p+1)/2), initialised at the KMeans centres: replaces
-   KMeans only if ARI(GMM, KMeans) >= 0.6 **and** BIC improves by >= 15 % over a spherical mixture, with no
-   cluster smaller than max(2, 1 % of n).
+1. group-aware sparse k-means weights; a feature group is dropped only if its weight is < 5 % of the largest
+  **and** a permutation test confirms it is irrelevant (the partition built from the other features explains
+  no more of its variance than 200 random label permutations, alpha 0.01). The soft-weighted space (confirmed-irrelevant groups weight 0, others their sparse weights) is
+   used only when such features exist; otherwise the unweighted space.
+2. Rule-gated candidates: KMeans always; Ward when n <= 6000; GMM-diag on the continuous columns when there are
+   >= 2; GMM-full on PCA-whitened data when there are >= 30 rows per group.
+3. The partition most candidates agree with (medoid by mean pairwise ARI; ties -> KMeans). No BIC acceptance.
 
 ## Known weaknesses
-- Rules are fixed thresholds; a dataset on the wrong side of a threshold gets a sub-optimal pipeline.
-- drybean: the accepted GMM-full partition (agreement 0.70, BIC +313 %) is worse than KMeans (0.63 vs 0.66);
-  round 1's 0.72 came from a lucky initialisation.
+- Rules are fixed thresholds.
+- Without the old BIC acceptance, round-1 Mall (0.96 -> 0.67) and iris (0.90 -> 0.74) lose their GMM answer.
 
 ## How to run
 
@@ -75,9 +63,9 @@ pandas >= 2.0 are expected, older versions are untested.
 | `main.py` | entry point; starts the budget clock before imports; writes a constant fallback at once; watchdog exits at budget+12 s with the best predictions already on disk |
 | `io_contract.py` | the ONLY contract-specific module (dataset/metadata loading with key aliases, output writing, profile key mapping) |
 | `data_profile.py` | structured data profile on the raw training table (pandas semantics) + `blank_string_count` / `suspected_missing` fields |
-| `cleaning.py` | type inference, numeric-as-string coercion (NA-like tokens only there; literal categories such as `none` survive), datetime expansion, constant / duplicate / ID dropping, text tokens, encoders with a width cap |
+| `cleaning.py` | type inference (undeclared integer columns named zip / state / *code / *ID -> categorical), numeric-as-string coercion (NA-like tokens only there; literal categories such as `none` survive), datetime expansion, constant / duplicate / ID dropping, text tokens, encoders with a width cap |
 | `utils.py` | budget, thread cap, metrics, folds, class-weight tuning, subsampling, fit-cost timer, k-guarantee helpers |
-| `feature_weighting.py` | group-aware sparse k-means (one-hot blocks judged like numerics) |
+| `feature_weighting.py` | group-aware sparse k-means, permutation-confirmed relevance filter, cheap candidate partitions + agreement medoid |
 | `model.py` | **the approach-specific modelling logic** |
 
 ## Shared guarantees
@@ -90,58 +78,78 @@ pandas >= 2.0 are expected, older versions are untested.
 - Classification predictions use the original label values; regression predictions are finite and clipped
   to a widened training range (>= 0 for non-negative targets).
 
-## Results after fix round 1 (docs/05_fix_round1_changelog.md)
-Round-1 suite (Validator's 18 datasets, Validator's scoring model, 2 threads, sequential, after warm-up):
-**78.56 / 100** (quality 63.77, profile 10.00, speed 4.79);
-median / max wall time 3.8 / 15.3 s. All 18 runs valid, no watchdog exit.
+## Results after fix round 2 (docs/07_fix_round2_changelog.md)
+Validator scoring model, 2 threads, sequential, after warm-up. Round-1 suite **77.23**, round-2 suite
+**73.60**, combined 36 datasets **150.83** / 200 (quality 121.71: clf 35.73 /
+reg 48.16 / clu 37.81; profile 20.00; speed 9.12). Median / max wall time
+3.7 / 27.0 s. All 36 runs valid, no watchdog exit. Both suites have now been used for
+development, so these numbers are optimistic; round 3 uses new data.
 
-| dataset | metric | round 1 | now | wall s round 1 -> now | model |
-|---|---|---|---|---|---|
-| c_adult | macro-F1 | 0.8150 | 0.8150 | 4.4 -> 4.7 | 0.5*linear+0.5*hgb |
-| c_ai4i | macro-F1 | 0.8517 | 0.8517 | 2.9 -> 3.1 | 1.0*hgb |
-| c_bank | macro-F1 | 0.7674 | 0.7674 | 6.0 -> 6.3 | 0.5*linear+0.5*hgb |
-| c_covertype | macro-F1 | 0.5721 | 0.5721 | 14.6 -> 15.3 | 1.0*hgb |
-| c_creditg | macro-F1 | 0.6951 | 0.6686 | 4.8 -> 5.6 | 0.5*linear+0.5*hgb |
-| c_telco | macro-F1 | 0.7344 | 0.7344 | 3.5 -> 3.7 | 0.5*linear+0.5*hgb |
-| k_drybean | ARI | 0.7242 | 0.6253 | 3.1 -> 3.8 | kmeans->GMM(full) |
-| k_iris | ARI | 0.9039 | 0.9039 | 1.8 -> 1.8 | sparse_kmeans->GMM(full) |
-| k_mall | ARI | 0.9696 | 0.9561 | 1.8 -> 1.8 | sparse_kmeans->GMM(diag) |
-| k_penguins | ARI | 0.5805 | 0.7685 | 1.7 -> 1.8 | sparse_kmeans |
-| k_seeds | ARI | 0.7224 | 0.7733 | 1.6 -> 1.8 | kmeans |
-| k_wine | ARI | 0.9150 | 0.9150 | 1.8 -> 1.8 | sparse_kmeans->GMM(diag) |
-| r_abalone | R2 | 0.5540 | 0.5540 | 2.5 -> 2.7 | 1.0*hgb[log1p] |
-| r_bike | R2 | 0.9598 | 0.9598 | 6.9 -> 7.1 | 1.0*hgb[log1p] |
-| r_california | R2 | -0.0445 | 0.8407 | 52.3 -> 5.4 | 1.0*hgb[log1p] |
-| r_concrete | R2 | 0.8818 | 0.8818 | 3.4 -> 2.8 | 1.0*hgb |
-| r_diamonds | R2 | 0.9800 | 0.9800 | 4.6 -> 4.9 | 1.0*hgb[log1p] |
-| r_house | R2 | 0.7507 | 0.8963 | 4.3 -> 4.6 | 1.0*hgb[log1p] |
+| suite | dataset | metric | before | after | wall s before -> after | model |
+|---|---|---|---|---|---|---|
+| r1 | c_adult | macro-F1 | 0.8150 | 0.8150 | 4.7 -> 5.0 | 0.5*linear+0.5*hgb |
+| r1 | c_ai4i | macro-F1 | 0.8517 | 0.8517 | 3.1 -> 3.0 | 1.0*hgb |
+| r1 | c_bank | macro-F1 | 0.7674 | 0.7674 | 6.3 -> 6.6 | 0.5*linear+0.5*hgb |
+| r1 | c_covertype | macro-F1 | 0.5721 | 0.5721 | 15.3 -> 17.6 | 1.0*hgb |
+| r1 | c_creditg | macro-F1 | 0.6686 | 0.6686 | 5.6 -> 5.3 | 0.5*linear+0.5*hgb |
+| r1 | c_telco | macro-F1 | 0.7344 | 0.7344 | 3.7 -> 3.8 | 0.5*linear+0.5*hgb |
+| r1 | k_drybean | ARI | 0.6253 | 0.6600 | 3.8 -> 3.0 | kmeans (unweighted) |
+| r1 | k_iris | ARI | 0.9039 | 0.7445 | 1.8 -> 1.8 | gmm_diag (sparse-weighted) |
+| r1 | k_mall | ARI | 0.9561 | 0.6651 | 1.8 -> 1.7 | ward (sparse-weighted) |
+| r1 | k_penguins | ARI | 0.7685 | 0.9536 | 1.8 -> 1.8 | gmm_full (sparse-weighted) |
+| r1 | k_seeds | ARI | 0.7733 | 0.7733 | 1.8 -> 1.7 | kmeans (unweighted) |
+| r1 | k_wine | ARI | 0.9150 | 0.8820 | 1.8 -> 1.8 | gmm_diag (sparse-weighted) |
+| r1 | r_abalone | R2 | 0.5540 | 0.5540 | 2.7 -> 2.9 | 1.0*hgb[log1p] |
+| r1 | r_bike | R2 | 0.9598 | 0.9598 | 7.1 -> 8.5 | 1.0*hgb[log1p] |
+| r1 | r_california | R2 | 0.8407 | 0.8407 | 5.4 -> 6.7 | 1.0*hgb[log1p] |
+| r1 | r_concrete | R2 | 0.8818 | 0.8818 | 2.8 -> 2.8 | 1.0*hgb |
+| r1 | r_diamonds | R2 | 0.9800 | 0.9800 | 4.9 -> 5.6 | 1.0*hgb[log1p] |
+| r1 | r_house | R2 | 0.8963 | 0.8963 | 4.6 -> 5.5 | 1.0*hgb[log1p] |
+| r2 | c_churn | macro-F1 | 0.9035 | 0.9035 | 4.3 -> 4.5 | 1.0*hgb |
+| r2 | c_creditapp | macro-F1 | 0.9064 | 0.9064 | 2.8 -> 2.9 | 1.0*hgb |
+| r2 | c_jannis | macro-F1 | 0.5525 | 0.5424 | 30.2 -> 27.0 | 1.0*hgb |
+| r2 | c_kick | macro-F1 | 0.6697 | 0.6697 | 10.6 -> 11.3 | 0.5*linear+0.5*hgb |
+| r2 | c_magic | macro-F1 | 0.8641 | 0.8641 | 7.8 -> 8.5 | 1.0*hgb |
+| r2 | c_pageblocks | macro-F1 | 0.8626 | 0.8626 | 5.9 -> 6.4 | 1.0*hgb |
+| r2 | k_ecoli | ARI | 0.4948 | 0.7659 | 1.8 -> 1.9 | gmm_full (unweighted) |
+| r2 | k_pendigits | ARI | 0.5631 | 0.5582 | 2.8 -> 3.7 | kmeans (unweighted) |
+| r2 | k_segment | ARI | 0.4784 | 0.4656 | 2.2 -> 2.4 | kmeans (unweighted) |
+| r2 | k_synth | ARI | 0.6989 | 0.9855 | 2.0 -> 2.2 | gmm_full (sparse-weighted) |
+| r2 | k_vehicle | ARI | 0.0763 | 0.0827 | 1.8 -> 2.0 | ward (sparse-weighted) |
+| r2 | k_wholesale | ARI | 0.5873 | 0.4696 | 1.6 -> 1.7 | kmeans (sparse-weighted) |
+| r2 | r_brazil | R2 | 0.9749 | 0.9749 | 3.6 -> 4.5 | 1.0*hgb[log1p] |
+| r2 | r_kc_house | R2 | 0.8568 | 0.8568 | 6.1 -> 7.3 | 1.0*hgb[log1p] |
+| r2 | r_moneyball | R2 | 0.9492 | 0.9492 | 2.9 -> 2.9 | 0.5*linear+0.5*hgb |
+| r2 | r_seoul | R2 | 0.9320 | 0.9320 | 6.4 -> 8.0 | 1.0*hgb[log1p] |
+| r2 | r_superconduct | R2 | 0.8992 | 0.9114 | 15.0 -> 14.5 | 1.0*hgb |
+| r2 | r_wine | R2 | 0.4628 | 0.4628 | 3.8 -> 3.2 | 1.0*hgb |
 
-Dev smoke sets (docs/03; synthetic + 2 built-ins, edge cases), all valid, no tracebacks:
+Dev smoke sets (docs/03), all valid, no tracebacks:
 
 | dataset | wall s | valid | metric |
 |---|---|---|---|
-| c_bool_target_degenerate | 4.4 | True | macro-F1 0.840 |
-| c_breast_cancer | 7.8 | True | macro-F1 0.948 |
-| c_edge | 3.8 | True | macro-F1 0.753 |
-| c_large | 26.5 | True | macro-F1 0.953 |
-| c_many_classes | 5.6 | True | macro-F1 0.521 |
-| c_multi_nonlinear | 11.9 | True | macro-F1 0.965 |
-| c_synth_imb | 5.3 | True | macro-F1 0.866 |
-| c_text_nantarget | 1.9 | True | macro-F1 1.000 |
-| c_tiny | 3.4 | True | macro-F1 0.493 |
-| k_all_categorical | 1.6 | True | ARI 0.711 |
-| k_aniso_scaled | 1.7 | True | ARI 0.996 |
-| k_blobs_noise | 1.6 | True | ARI 1.000 |
-| k_large | 4.2 | True | ARI 0.998 |
-| k_mixed_cat | 1.7 | True | ARI 0.695 |
-| k_no_k | 1.6 | True | ARI 1.000 |
+| c_bool_target_degenerate | 3.5 | True | macro-F1 0.840 |
+| c_breast_cancer | 8.0 | True | macro-F1 0.948 |
+| c_edge | 3.9 | True | macro-F1 0.753 |
+| c_large | 26.0 | True | macro-F1 0.952 |
+| c_many_classes | 5.2 | True | macro-F1 0.521 |
+| c_multi_nonlinear | 13.1 | True | macro-F1 0.965 |
+| c_synth_imb | 5.2 | True | macro-F1 0.866 |
+| c_text_nantarget | 2.1 | True | macro-F1 1.000 |
+| c_tiny | 3.6 | True | macro-F1 0.493 |
+| k_all_categorical | 1.7 | True | ARI 0.711 |
+| k_aniso_scaled | 1.9 | True | ARI 0.996 |
+| k_blobs_noise | 1.8 | True | ARI 1.000 |
+| k_large | 4.0 | True | ARI 0.998 |
+| k_mixed_cat | 1.7 | True | ARI 0.696 |
+| k_no_k | 1.7 | True | ARI 1.000 |
 | k_tiny | 1.5 | True | ARI 0.731 |
-| r_counts_datetime | 2.9 | True | R2 0.966 |
+| r_counts_datetime | 3.3 | True | R2 0.966 |
 | r_diabetes | 2.9 | True | R2 0.352 |
 | r_friedman | 2.6 | True | R2 0.821 |
-| r_prices_strings | 2.7 | True | R2 0.904 |
-| r_tiny | 2.7 | True | R2 0.915 |
-| r_wide | 14.9 | True | R2 0.942 |
+| r_prices_strings | 2.9 | True | R2 0.904 |
+| r_tiny | 2.8 | True | R2 0.915 |
+| r_wide | 17.2 | True | R2 0.942 |
 
 ## Assumptions
 Same as `docs/01_research_report.md` section 10: folder with `train.csv`/`test.csv` (or `data.csv` for

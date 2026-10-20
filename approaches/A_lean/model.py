@@ -85,8 +85,11 @@ def _hgb_params(n):
     return p
 
 
-def _n_folds(n):
-    return 5 if n <= 30000 else 3
+HEAVY_WORK = 5e6   # n x features x classes above this -> 3 folds (time headroom on wide multiclass tables)
+
+
+def _n_folds(n, p=0, n_classes=1):
+    return 5 if (n <= 30000 and n * p * max(1, n_classes) <= HEAVY_WORK) else 3
 
 
 def _iteration_cap(timer, n_tr, n_folds, models_per_fold, budget):
@@ -163,7 +166,7 @@ def _classification(task, prep, budget, emit, log):
 
     use_et = C >= 5
     use_lr = n < 2000 or n / C < 100
-    folds = make_folds(y, _n_folds(n), "classification")
+    folds = make_folds(y, _n_folds(n, A.shape[1], C), "classification")
     n_tr = int(len(y) * (1 - 1 / len(folds)))
     cap = _iteration_cap(timer, n_tr, len(folds), 1, budget)
     if cap is not None and cap < params["max_iter"]:
@@ -287,7 +290,7 @@ def _regression(task, prep, budget, emit, log):
     qp = qm.predict(B)
     emit(_clip(np.expm1(qp) if q_log else qp, y), "quick_hgb")
 
-    folds = make_folds(y, _n_folds(n), "regression")
+    folds = make_folds(y, _n_folds(n, A.shape[1]), "regression")
     n_tr = int(n * (1 - 1 / len(folds)))
     cap = _iteration_cap(timer, n_tr, len(folds), len(transforms), budget)
     if cap is not None and cap < params["max_iter"]:
