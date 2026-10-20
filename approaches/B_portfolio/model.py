@@ -105,8 +105,10 @@ def _capped_balanced(counts, cap=25.0):
     return {int(c): float(w[c]) for c in np.where(present)[0]}
 
 
-def _portfolio(kind, n, p_lin, p_tree, cw, nj):
-    """Deterministic list of (name, view, factory, relative_cost), decided by data size/shape only."""
+def _portfolio(kind, n, p_lin, p_tree, cw, nj, heavy=False):
+    """Deterministic list of (name, view, factory, relative_cost), decided by data size/shape only.
+
+    heavy (work n x p x classes > HEAVY_WORK): only the core candidates (hgb_a, linear, ExtraTrees, hgb_b)."""
     from sklearn.ensemble import (ExtraTreesClassifier, ExtraTreesRegressor, HistGradientBoostingClassifier,
                                   HistGradientBoostingRegressor, RandomForestClassifier, RandomForestRegressor)
     from sklearn.linear_model import LogisticRegression, RidgeCV
@@ -148,6 +150,8 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj):
             trees, max_features=0.7, min_samples_leaf=2, bootstrap=ms is not None, max_samples=ms,
             n_jobs=nj, random_state=SEED), 1.5))
     out.append(("hgb_b", "tree", lambda m: H(random_state=SEED, categorical_features=m, **hgb_b, **extra), 1.5))
+    if heavy:
+        return out
     if clf:
         out.append(("randomforest", "forest", lambda m: RandomForestClassifier(
             trees, max_features="sqrt", min_samples_leaf=1, max_samples=ms, n_jobs=nj, random_state=SEED,
@@ -165,6 +169,10 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj):
 
 
 LINEAR_MEMBERS = ("ridge", "logreg")
+HEAVY_CELLS = 8e5        # size class: n x tree-features above this -> 3 folds + core portfolio (wide/large tables)
+LOG_TOLERANCE = 0.005    # B2: keep only log1p members when log1p hgb_a is within this OOF R2 of raw
+LOG_ENSEMBLE_TOLERANCE = 0.01   # B2: log-only ensemble accepted within 0.01 OOF R2 (RMSLE safety, Seoul -0.007)
+OOD_CAP = 2.0            # B3: on out-of-range rows a linear member may deviate from the trees by <= x2
 
 
 # --------------------------------------------------------------------------- supervised
@@ -214,17 +222,28 @@ def _supervised(task, prep, budget, emit, log):
         qp = qm.predict(B)
         emit(_clip(np.expm1(np.clip(qp, None, 60)) if q_log else qp, y), "quick_hgb")
 
-    folds = make_folds(y, 5 if n <= 30000 else 3, task.task_type)
+    work = n * A.shape[1]
+    heavy = work > HEAVY_CELLS
+    folds = make_folds(y, 3 if (heavy or n > 30000) else 5, task.task_type)
     p_lin = views.linear()[0].shape[1]
-    portfolio = _portfolio(task.task_type, n, p_lin, A.shape[1], cw, nj)
-    info = {"candidates": [], "transforms_tried": transforms, "portfolio_plan": [p[0] for p in portfolio]}
-    # safety only: if even the anchor HistGB is projected not to fit, keep the quick model
+    portfolio = _portfolio(task.task_type, n, p_lin, A.shape[1], cw, nj, heavy)
+    info = {"candidates": [], "transforms_tried": transforms, "size_class": "heavy" if heavy else "normal",
+            "work": int(work)}
+    # B1 affordability (safety only): if the portfolio is projected not to fit, fall back to the FULL single
+    # hgb_a with an iteration cap from the measured quick-fit rate (as A / C) -- not to the quick model
     n_tr = int(n * (1 - 1 / len(folds)))
-    est_anchor = timer.estimate("hgb_iter", n_tr, 150) * len(folds) * len(transforms) / 3.0
+    rate = timer.rate["hgb_iter"]
+    est_anchor = rate * n_tr * 150 * len(folds) * len(transforms) / 3.0
     if budget.remaining() - RESERVE < est_anchor:
-        log("budget: keeping the quick model (portfolio not affordable)")
-        info.update(model="quick HistGB (budget)")
-        return info
+        it_cap = int(3.0 * (budget.remaining() - RESERVE) / len(folds) / len(transforms) / (rate * n_tr))
+        if it_cap < 40:
+            log("budget: keeping the quick model (not even hgb_a affordable)")
+            info.update(model="quick HistGB (budget)")
+            return info
+        portfolio = [_with_iter_cap(portfolio[0], it_cap)]
+        info["fallback"] = "single hgb_a (max_iter <= %d): portfolio projected not to fit" % it_cap
+        log("budget: " + info["fallback"])
+    info["portfolio_plan"] = [p[0] for p in portfolio]
 
     results, base_cost, best_tf, best_score = [], None, "raw", -np.inf
     ens_score, stopped = -np.inf, None
@@ -252,6 +271,11 @@ def _supervised(task, prep, budget, emit, log):
                 if name == "hgb_a":
                     best_tf = tf
                 emit(classes[np.argmax(res["test"], 1)] if clf else _clip(res["test"], y), f"single:{res['name']}")
+        if name == "hgb_a" and len(transforms) > 1:
+            # later members follow the log target when it is within LOG_TOLERANCE of raw (RMSLE safety)
+            sc = {r["tf"]: r["score"] for r in results if r["name"].startswith("hgb_a")}
+            if "log1p" in sc and "raw" in sc and sc["log1p"] >= sc["raw"] - LOG_TOLERANCE:
+                best_tf = "log1p"
         n_models = len({r["name"].split("[")[0] for r in results})
         if n_models >= CORE and results:
             _, s_new = _caruana(results, y, clf, C)
@@ -265,20 +289,40 @@ def _supervised(task, prep, budget, emit, log):
         info.update(model="quick HistGB (no candidate finished)")
         return info
 
-    weights, _ = _caruana(results, y, clf, C)
+    weights, ens_all = _caruana(results, y, clf, C)
+    if not clf and "log1p" in transforms:
+        # B2 (RMSLE safety, decision-level tie-break): if the ensemble of log-target members only is within
+        # LOG_ENSEMBLE_TOLERANCE OOF R2 of the unrestricted ensemble, use it (same R2, much better relative error)
+        log_res = [r for r in results if r["tf"] == "log1p"]
+        if log_res and len(log_res) < len(results):
+            w_log, ens_log = _caruana(log_res, y, clf, C)
+            info["log_only_ensemble"] = {"oof_r2_all": round(ens_all, 5), "oof_r2_log_only": round(ens_log, 5)}
+            if ens_log >= ens_all - LOG_ENSEMBLE_TOLERANCE:
+                results, weights = log_res, w_log
+                info["log_only_ensemble"]["chosen"] = True
     info["ensemble_weights"] = {results[i]["name"]: round(w, 4) for i, w in enumerate(weights) if w > 0}
     info["model"] = "CaruanaEnsemble(" + ", ".join(f"{k}:{v}" for k, v in info["ensemble_weights"].items()) + ")"
     oof = sum(w * results[i]["oof"] for i, w in enumerate(weights) if w > 0)
     test = sum(w * results[i]["test"] for i, w in enumerate(weights) if w > 0)
     if not clf:
-        # out-of-range test rows: drop the linear members' share (they extrapolate); renormalise the rest
+        # B3: on test rows outside the training feature range a linear member is CAPPED to within a factor
+        # OOD_CAP of the non-linear members (extrapolation is trusted only when corroborated in magnitude)
         lin = [i for i, w in enumerate(weights) if w > 0 and results[i]["name"].split("[")[0] in LINEAR_MEMBERS]
         w_lin = sum(weights[i] for i in lin)
         ood = views.out_of_range()
         if lin and 0 < w_lin < 1 and ood.any():
             rest = sum(w * results[i]["test"] for i, w in enumerate(weights) if w > 0 and i not in lin) / (1 - w_lin)
-            test = np.where(ood, rest, test)
-            info["out_of_range_test_rows_without_linear"] = int(ood.sum())
+            capped = rest * (1 - w_lin)
+            for i in lin:
+                if y.min() >= 0:
+                    lo, hi = rest / OOD_CAP, rest * OOD_CAP
+                else:
+                    span = (OOD_CAP - 1) * (np.abs(rest) + y.std())
+                    lo, hi = rest - span, rest + span
+                capped = capped + weights[i] * np.clip(results[i]["test"], np.minimum(lo, hi), np.maximum(lo, hi))
+            info["out_of_range_rows"] = int(ood.sum())
+            info["out_of_range_rows_linear_capped"] = int((ood & (np.abs(capped - test) > 1e-9)).sum())
+            test = np.where(ood, capped, test)
     if clf:
         wcls = np.ones(C)
         wt, f0, f1 = tune_class_weights(oof, y, C)
@@ -340,6 +384,16 @@ def _score(y, oof, clf, C):
     return r2(y, oof)
 
 
+def _with_iter_cap(entry, it_cap):
+    name, view, make, rel = entry
+
+    def capped(m):
+        est = make(m)
+        est.set_params(max_iter=int(min(est.get_params()["max_iter"], it_cap)))
+        return est
+    return (name, view, capped, rel)
+
+
 def _caruana(results, y, clf, C, n_steps=30):
     m = len(results)
     scores = [r["score"] for r in results]
@@ -369,7 +423,6 @@ def _clip(p, y):
 
 
 # --------------------------------------------------------------------------- clustering
-DROP_REL_WEIGHT = 0.05
 
 
 def _concat(a, b):
@@ -420,12 +473,10 @@ def _clustering(task, prep, budget, emit, log):
     # 1) relevance filter shared by every view (+ a sparse-weighted view)
     sparse_view = None
     if len(groups) >= 3 and k >= 2 and n >= 10 and budget.has(RESERVE + 4):
-        base_ratio = FW.group_ratio(Xg, km0.labels_, groups)
         r = FW.fit_sparse(Xg, groups, k, budget)
         w = r["w"]
-        drop = w < DROP_REL_WEIGHT * w.max()
-        num_ratio = base_ratio[~is_cat]
-        drop &= ~(is_cat & (base_ratio >= (np.median(num_ratio) if len(num_ratio) else 0.0)))
+        drop, tests = FW.relevance_filter(Xg, groups, k, w)       # B4: shared confirmed filter (SH1)
+        info["relevance_tests"] = {gnames[g]: v for g, v in tests.items()}
         info["sparse_weights"] = {gnames[g]: round(float(w[g]), 4) for g in range(len(groups))}
         if drop.any() and not drop.all():
             gone = {gnames[g] for g in range(len(groups)) if drop[g]}
