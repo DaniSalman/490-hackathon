@@ -77,8 +77,11 @@ def c_magic(root=SUITE2):
     df = openml(1120)
     rec = Rec("c_magic")
     df.columns = [c.rstrip(":") for c in df.columns]
-    df["ID"] = pd.to_numeric(df["ID"]).astype(int)
-    rec.nat("MAGIC gamma telescope (OpenML 1120), 19020 x 12; hadron 35 %; nonlinear; heavy-tailed fAsym/fM3*; native `ID` row counter (undeclared)")
+    # The OpenML file is sorted by class and `ID` is the row number -> ID alone predicts the class (default HGB
+    # macro-F1 0.998). Shuffle the rows and renumber ID so it stays an (undeclared) ID without leaking.
+    df = df.sample(frac=1.0, random_state=212).reset_index(drop=True)
+    df["ID"] = np.random.RandomState(213).permutation(len(df)) + 1
+    rec.nat("MAGIC gamma telescope (OpenML 1120), 19020 x 12; hadron 35 %; nonlinear; heavy-tailed fAsym/fM3*; `ID` column (undeclared; rows shuffled and ID renumbered because the original ID order leaks the class)")
     rec.truth["id_columns"].append("ID")
     add_duplicate(df, rec, "fLength", "fLength_mm")
     add_constant(df, rec, "telescope", "MAGIC-I")

@@ -10,3 +10,4 @@ dev_data/
 runs/
 validation/runs/
 validation/*.log
+validation/runs_r2/
