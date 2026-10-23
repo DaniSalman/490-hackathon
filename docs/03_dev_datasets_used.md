@@ -66,3 +66,7 @@ penguins, drybean). No dataset-specific rule (names, columns, sizes) was added t
 All 36 datasets of the round-1 and round-2 suites (validation/SUITE.md, validation/SUITE_ROUND2.md) were used
 to accept or reject the round-2 changes (combined-score rule, docs/07). Both suites are now development data;
 round 3 must use new datasets. No dataset-specific rule was added.
+
+## Fix round 3 (docs/09): the round-3 suite was also used
+All 54 datasets of suites r1, r2 and r3 (validation/SUITE_ROUND3.md included) plus their stress probes were
+used to verify the round-3 fixes. All three suites are now development data; round 4 must use new datasets.
