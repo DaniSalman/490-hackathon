@@ -3,7 +3,8 @@
 Reuses (read-only import) the Validator's grader simulation and scoring functions from
 validation/run_validation.py; round-2 paths/baselines are passed explicitly. Runs go to runs/<tag>/<suite>/.
 
-    py tools/eval_suite.py run   --tag r2fix --suite r1 r2 [--approaches A_lean ...] [--only k_synth ...]
+    py tools/eval_suite.py run   --tag r3fix --suite r1 r2 r3 [--approaches A_lean ...] [--only k_synth ...]
+                                 [--threads 1] [--slowdown 2.5]
     py tools/eval_suite.py score --tag r2fix --suite r1 r2 [--before r1=runs/r1final/scores.csv
                                                            r2=validation/results_round2/results.csv]
 """
@@ -25,6 +26,8 @@ SUITES = {
            "baselines": os.path.join(ROOT, "validation", "results", "baselines.csv")},
     "r2": {"data": os.path.join(ROOT, "validation", "data", "suite_r2"), "warmup": "k_wholesale",
            "baselines": os.path.join(ROOT, "validation", "results_round2", "baselines.csv")},
+    "r3": {"data": os.path.join(ROOT, "validation", "data", "suite_r3"), "warmup": "k_glass",
+           "baselines": os.path.join(ROOT, "validation", "results_round3", "baselines.csv")},
 }
 
 
@@ -38,15 +41,27 @@ def _root(tag, suite):
 
 
 def cmd_run(a):
+    RV.THREADS = str(a.threads)
+    limit = RV.LIMIT
+    if a.slowdown and a.slowdown != 1:
+        os.environ["HACK_SLOWDOWN"] = str(a.slowdown)       # inherited by the subprocess (main.py M3 flag)
+        limit = RV.LIMIT / a.slowdown                        # the grader's 60 s kill scales the same way
     for suite in a.suite:
         S = SUITES[suite]
         base = os.path.join(ROOT, "runs", a.tag, suite)
         for ap in a.approaches:
-            RV.run_one(ap, os.path.join(S["data"], S["warmup"]), os.path.join(base, "warmup", ap))
+            RV.run_one(ap, os.path.join(S["data"], S["warmup"]), os.path.join(base, "warmup", ap), limit)
             for ds in RV._datasets(S["data"]):
                 if a.only and ds not in a.only:
                     continue
-                m = RV.run_one(ap, os.path.join(S["data"], ds), os.path.join(base, ap, ds))
+                m = RV.run_one(ap, os.path.join(S["data"], ds), os.path.join(base, ap, ds), limit)
+                if a.slowdown and a.slowdown != 1:      # record the scale: speed points use wall time x scale
+                    mp = os.path.join(base, ap, ds, "run_meta.json")
+                    with open(mp, encoding="utf-8") as f:
+                        mm = json.load(f)
+                    mm["time_scale"] = a.slowdown
+                    with open(mp, "w", encoding="utf-8") as f:
+                        json.dump(mm, f, indent=1)
                 print(f"{suite} {ap:12s} {ds:16s} {m['wall_time']:6.2f}s {m['status']:8s} tb={m['traceback']} "
                       f"wd={m['watchdog']}", flush=True)
 
@@ -78,7 +93,9 @@ def score_suite(tag, suite, approaches=None):
             m = s.get(pm) if ok else None
             norm = float(np.clip((m - trivial) / (1 - trivial), 0, 1)) if m is not None else 0.0
             useful = ok and (norm >= 0.5 or norm >= 0.9 * sk_norm)
-            sf = RV.speed_factor(meta.get("wall_time")) if ok else 0.0
+            wt = meta.get("wall_time")
+            scale = float(meta.get("time_scale") or 1.0)
+            sf = RV.speed_factor(wt * scale if wt is not None else None) if ok else 0.0
             if prof and "columns" in prof:
                 fs, _ = RV.score_profile(prof, gt)
                 ps = float(np.mean([fs[f] for f in RV.PROFILE_FIELDS]))
@@ -136,7 +153,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["run", "score"])
     ap.add_argument("--tag", required=True)
-    ap.add_argument("--suite", nargs="*", default=["r1", "r2"], choices=["r1", "r2"])
+    ap.add_argument("--suite", nargs="*", default=["r1", "r2", "r3"], choices=["r1", "r2", "r3"])
+    ap.add_argument("--threads", type=int, default=2)
+    ap.add_argument("--slowdown", type=float, default=None, help="simulate an s-times slower CPU (HACK_SLOWDOWN)")
     ap.add_argument("--approaches", nargs="*", default=["A_lean", "B_portfolio", "C_rules"])
     ap.add_argument("--only", nargs="*")
     ap.add_argument("--before", nargs="*", help="suite=path/to/results.csv for a before/after listing")

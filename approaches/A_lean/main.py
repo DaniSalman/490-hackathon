@@ -56,6 +56,14 @@ def main(argv=None):
     from io_contract import load_task, write_predictions, write_profile
     from utils import Budget
 
+    # Slow-CPU simulation (M3 self-check): HACK_SLOWDOWN=s divides the budget and the watchdog limit by s, which
+    # is what a CPU s times slower does to every measured duration relative to the fixed 60 s limit.
+    # (s < 1 is a development aid: it compensates a throttled machine so that decisions match a normal one)
+    slow = float(os.environ.get("HACK_SLOWDOWN", "1") or 1)
+    if slow > 0 and slow != 1:
+        args.time_budget = args.time_budget / slow
+        if args.hard_limit is None:
+            args.hard_limit = (args.time_budget * slow + 12.0) / slow
     budget = Budget(T0, args.time_budget)
     log = (lambda *a: None) if args.quiet else (lambda *a: print(f"[{budget.elapsed():6.2f}s]", *a, flush=True))
     task = load_task(args.data, args.train, args.test, args.meta)

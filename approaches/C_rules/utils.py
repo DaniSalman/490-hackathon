@@ -244,3 +244,77 @@ class FitTimer:
     def affordable(self, kind, n_rows, units, budget, reserve, factor=1.3):
         est = self.estimate(kind, n_rows, units)
         return est is None or budget.remaining() - reserve > factor * est
+
+
+# --------------------------------------------------------------------------- round 3: interruptible HGB, k labels
+SLOW_CPU_SAFETY = 2.0   # cost projections assume a CPU up to 2x slower than the one that measured them
+
+
+def fit_hgb_anytime(est, X, y, deadline=None, first_chunk=50):
+    """Fit a HistGradientBoosting model in growing warm-start chunks (50, 100, 200, ... iterations) and stop
+    before the chunk that is projected to cross `deadline` (time.perf_counter() value).
+
+    Without a deadline hit the result is identical to a single fit (same seed, same early stopping).
+    Returns (estimator, truncated: bool).
+    """
+    target = int(est.get_params()["max_iter"])
+    if deadline is None or target <= first_chunk:
+        est.fit(X, y)
+        return est, False
+    est.set_params(warm_start=True, max_iter=first_chunk)
+    prev_iters, truncated = 0, False
+    while True:
+        t0 = time.perf_counter()
+        est.fit(X, y)
+        dt = time.perf_counter() - t0
+        cur = int(est.max_iter)
+        if est.n_iter_ < cur or cur >= target:          # early-stopped or complete
+            break
+        nxt = min(target, cur * 2)
+        per_iter = dt / max(1, cur - prev_iters)
+        if time.perf_counter() + SLOW_CPU_SAFETY * per_iter * (nxt - cur) > deadline:
+            truncated = True
+            break
+        prev_iters = cur
+        est.set_params(max_iter=nxt)
+    est.set_params(warm_start=False)
+    return est, truncated
+
+
+def finalize_labels(labels, X, k, n_pred):
+    """Exactly min(k, n_pred) distinct labels 0..k-1 ON THE PREDICTED ROWS (the last n_pred rows; in the
+    train/test clustering variant the training rows are not scored, so a group made only of training rows
+    would leave the output with fewer than k labels)."""
+    labels = np.asarray(labels)
+    sub = labels[-n_pred:]
+    Xs = X[-n_pred:]
+    return ensure_k_labels(sub, Xs, min(int(k), len(sub)))
+
+
+class FoldPlanner:
+    """Measured-time CV plan (M1b). Each fold gets a deadline equal to its fair share of the remaining budget
+    (HGB fits stop between warm-start chunks at that deadline); after every fold the planned number of folds is
+    reduced so that the remaining folds would still fit if the CPU were SLOW_CPU_SAFETY times slower.
+    Small / normal tables are unaffected."""
+
+    def __init__(self, n_folds, budget, reserve):
+        self.planned, self.budget, self.reserve = int(n_folds), budget, reserve
+        self.done, self.times = 0, []
+        self.reduced_from = None
+
+    def more(self):
+        return self.done < self.planned
+
+    def deadline(self):
+        left = max(1, self.planned - self.done)
+        return time.perf_counter() + max(0.5, (self.budget.remaining() - self.reserve) / left)
+
+    def fold_done(self, seconds):
+        self.done += 1
+        self.times.append(seconds)
+        per = max(self.times)
+        affordable = int((self.budget.remaining() - self.reserve) / (SLOW_CPU_SAFETY * per)) if per > 0 else 99
+        new = min(self.planned, self.done + max(0, affordable))
+        if new < self.planned:
+            self.reduced_from = self.reduced_from or self.planned
+            self.planned = new
