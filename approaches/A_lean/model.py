@@ -19,13 +19,14 @@ import numpy as np
 
 from cleaning import (encode_classes, encode_regression_target, max_encoded_features, numeric_dense, onehot_encode,
                       ordinal_encode, prepare)
-from utils import (SEED, FitTimer, align_proba, cap_cat_codes, choose_k_silhouette, ensure_k_labels, get_n_jobs,
+from utils import (SEED, SLOW_CPU_SAFETY, FoldPlanner, finalize_labels, fit_hgb_anytime, FitTimer, align_proba, cap_cat_codes, choose_k_silhouette, ensure_k_labels, get_n_jobs,
                    hgb_wide_params, macro_f1, make_folds, r2, rmse, subsample_idx, tune_class_weights)
 
 warnings.filterwarnings("ignore")
 RESERVE = 4.0       # seconds kept back for writing outputs
 QUICK_ROWS = 5000   # rows for the quick first model / cost probe
 QUICK_ITERS = 100
+QUICK_SHARE = 0.125  # the quick (anytime) model must finish within 1/8 of the budget (stops between chunks)
 
 
 def solve(task, budget, emit, log):
@@ -74,7 +75,17 @@ def _forest_matrix(prep, keep):
     return np.hstack([An, np.nan_to_num(Ac, nan=-1)])[keep], np.hstack([Bn, np.nan_to_num(Bc, nan=-1)])
 
 
-def _hgb_params(n):
+MANY_CLASSES = 10   # HGB grows one tree per class per iteration: >= 10 classes -> "fast HGB" configuration
+
+
+def _hgb_params(n, n_classes=2):
+    if n_classes >= MANY_CLASSES:
+        # fast HGB for many classes (M1d): the per-iteration cost is n_classes trees, so learn faster with fewer
+        # iterations (sklearn's default HGB setting: lr 0.1), mild early stopping
+        p = dict(learning_rate=0.1, max_iter=100, max_leaf_nodes=31, min_samples_leaf=20, l2_regularization=0.0,
+                 early_stopping=n >= 1000, validation_fraction=0.12, n_iter_no_change=20)
+        p["random_state"] = SEED
+        return p
     if n < 1000:
         p = dict(learning_rate=0.05, max_iter=250, max_leaf_nodes=15, min_samples_leaf=max(5, n // 60),
                  l2_regularization=1.0, early_stopping=False)
@@ -89,6 +100,10 @@ HEAVY_WORK = 5e6   # n x features x classes above this -> 3 folds (time headroom
 
 
 def _n_folds(n, p=0, n_classes=1):
+    # one HGB tree per class per iteration: with many classes the CV cost is folds x classes trees, so use
+    # 3 folds (M1); also 3 folds for very large / wide tables
+    if n_classes >= MANY_CLASSES:
+        return 3
     return 5 if (n <= 30000 and n * p * max(1, n_classes) <= HEAVY_WORK) else 3
 
 
@@ -140,7 +155,7 @@ def _classification(task, prep, budget, emit, log):
     n = len(y)
     counts = np.bincount(y, minlength=C)
     imb = counts.max() / max(1, counts[counts > 0].min())
-    params = _hgb_params(n)
+    params = _hgb_params(n, C)
     params.update(hgb_wide_params(A.shape[1]))
     if "max_bins" in params:
         A, B = cap_cat_codes(mask, params["max_bins"], A, B)
@@ -160,8 +175,8 @@ def _classification(task, prep, budget, emit, log):
     t0 = time.perf_counter()
     q_iters = QUICK_ITERS if C == 2 else max(30, QUICK_ITERS * 2 // C)    # multiclass: C trees per iteration
     qp = dict(params, max_iter=q_iters, learning_rate=0.1, early_stopping=False)
-    qm = HistGradientBoostingClassifier(**qp).fit(A[qi], y[qi])
-    timer.observe("hgb", len(qi), q_iters, time.perf_counter() - t0)
+    qm, _ = fit_hgb_anytime(HistGradientBoostingClassifier(**qp), A[qi], y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+    timer.observe("hgb", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     emit(classes[np.argmax(align_proba(qm, qm.predict_proba(B), C), 1)], "quick_hgb")
 
     use_et = C >= 5
@@ -185,9 +200,14 @@ def _classification(task, prep, budget, emit, log):
         from sklearn.linear_model import LogisticRegression
         LA, LB = _linear_matrix(prep, keep)
         members["lr"] = (np.full((n, C), np.nan), np.zeros((len(B), C)))
-    done = 0
+    done, truncated = 0, 0
+    planner = FoldPlanner(len(folds), budget, RESERVE)
     for tr, va in folds:
+        if not planner.more():
+            log(f"budget: CV reduced to {planner.planned} folds (measured fold time x{SLOW_CPU_SAFETY} safety)")
+            break
         fold_ok = True
+        t_fold, dl = time.perf_counter(), planner.deadline()
         for name in list(members):
             est = timer.estimate(name, len(tr), 1) if name != "hgb" else None
             last = timer.rate.get(f"{name}_fold")
@@ -199,7 +219,8 @@ def _classification(task, prep, budget, emit, log):
                 break
             t = time.perf_counter()
             if name == "hgb":
-                m = HistGradientBoostingClassifier(**params).fit(A[tr], y[tr])
+                m, cut = fit_hgb_anytime(HistGradientBoostingClassifier(**params), A[tr], y[tr], dl)
+                truncated += int(cut)
                 Pv, Pt = m.predict_proba(A[va]), m.predict_proba(B)
             elif name == "et":
                 m = ExtraTreesClassifier(100, max_features="sqrt", min_samples_leaf=1, n_jobs=get_n_jobs(),
@@ -217,9 +238,10 @@ def _classification(task, prep, budget, emit, log):
             log("budget: stopping CV early")
             break
         done += 1
+        planner.fold_done(time.perf_counter() - t_fold)
         if done == 1:
             emit(classes[np.argmax(members["hgb"][1], 1)], "hgb_fold1")
-    info["cv_folds_done"] = done
+    info.update(cv_folds_done=done, hgb_fits_truncated=truncated, folds_reduced_from=planner.reduced_from)
     if done == 0:
         return info
     used = np.concatenate([va for _, va in folds[:done]])
@@ -284,9 +306,10 @@ def _regression(task, prep, budget, emit, log):
     qi = subsample_idx(y, QUICK_ROWS, "regression")
     t0 = time.perf_counter()
     q_log = "log1p" in transforms
-    qm = HistGradientBoostingRegressor(**dict(params, max_iter=QUICK_ITERS, learning_rate=0.1,
-                                              early_stopping=False)).fit(A[qi], np.log1p(y[qi]) if q_log else y[qi])
-    timer.observe("hgb", len(qi), QUICK_ITERS, time.perf_counter() - t0)
+    qm, _ = fit_hgb_anytime(HistGradientBoostingRegressor(**dict(params, max_iter=QUICK_ITERS, learning_rate=0.1,
+                                                                 early_stopping=False)),
+                            A[qi], np.log1p(y[qi]) if q_log else y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+    timer.observe("hgb", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     qp = qm.predict(B)
     emit(_clip(np.expm1(qp) if q_log else qp, y), "quick_hgb")
 
@@ -303,23 +326,29 @@ def _regression(task, prep, budget, emit, log):
 
     oof = {t: np.full(n, np.nan) for t in transforms}
     test = {t: np.zeros(len(B)) for t in transforms}
-    done, last = 0, None
+    done, last, truncated = 0, None, 0
+    planner = FoldPlanner(len(folds), budget, RESERVE)
     for tr, va in folds:
-        if done and budget.remaining() - RESERVE < 1.3 * last:
+        if not planner.more() or (done and budget.remaining() - RESERVE < 1.3 * last):
             log("budget: stopping CV early")
             break
         t0 = time.perf_counter()
-        for t in transforms:
+        dl = planner.deadline()
+        for i_t, t in enumerate(transforms):
             yt = np.log1p(y[tr]) if t == "log1p" else y[tr]
-            m = HistGradientBoostingRegressor(**params).fit(A[tr], yt)
+            share = t0 + (dl - t0) * (i_t + 1) / len(transforms)
+            m, cut = fit_hgb_anytime(HistGradientBoostingRegressor(**params), A[tr], yt, share)
+            truncated += int(cut)
             pv, pt = m.predict(A[va]), m.predict(B)
             if t == "log1p":
                 pv, pt = np.expm1(np.clip(pv, None, 60)), np.expm1(np.clip(pt, None, 60))
             oof[t][va], test[t] = pv, test[t] + pt
         done += 1
         last = time.perf_counter() - t0
+        planner.fold_done(last)
         if done == 1:
             emit(_clip(test[transforms[-1]], y), "hgb_fold1")
+    info.update(hgb_fits_truncated=truncated, folds_reduced_from=planner.reduced_from)
     if done == 0:
         return info
     have = ~np.isnan(oof["raw"])
@@ -393,7 +422,7 @@ def _clustering(task, prep, budget, emit, log):
         info["k_chosen_by_silhouette"] = int(k)
     k = int(min(k, n))
     km = KMeans(k, n_init=10 if n <= 20000 else 4, random_state=SEED).fit(X)
-    emit(ensure_k_labels(km.labels_, X, k)[-n_pred:], "kmeans_all_features")
+    emit(finalize_labels(km.labels_, X, k, n_pred), "kmeans_all_features")
     if k < 2 or n < 10:
         return info
 
@@ -423,10 +452,10 @@ def _clustering(task, prep, budget, emit, log):
     # 2) small candidate set, chosen by agreement (medoid); no BIC-gain acceptance (SH2)
     cands = FW.candidate_partitions(Xf, num_cols, k, budget, RESERVE)
     if "kmeans" in cands:
-        emit(ensure_k_labels(cands["kmeans"], Xf, k)[-n_pred:], "kmeans_filtered")
+        emit(finalize_labels(cands["kmeans"], Xf, k, n_pred), "kmeans_filtered")
     pick, scores = FW.agreement_medoid(cands)
     info.update(candidates=list(cands), agreement=scores, k=k)
     info["model"] = ("relevance-filtered " if "dropped_irrelevant" in info else "") + pick
-    labels = ensure_k_labels(cands[pick], Xf, k)
-    emit(labels[-n_pred:], "final")
+    labels = finalize_labels(cands[pick], Xf, k, n_pred)
+    emit(labels, "final")
     return info
