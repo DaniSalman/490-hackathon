@@ -241,13 +241,9 @@ def _supervised(task, prep, budget, emit, log):
     rate = timer.rate["hgb_iter"]
     est_anchor = rate * n_tr * 150 * len(folds) * len(transforms) / 3.0
     if budget.remaining() - RESERVE < est_anchor:
-        it_cap = int(3.0 * (budget.remaining() - RESERVE) / len(folds) / len(transforms) / (rate * n_tr))
-        if it_cap < 40:
-            log("budget: keeping the quick model (not even hgb_a affordable)")
-            info.update(model="quick HistGB (budget)")
-            return info
-        portfolio = [_with_iter_cap(portfolio[0], it_cap)]
-        info["fallback"] = "single hgb_a (max_iter <= %d): portfolio projected not to fit" % it_cap
+        # the anchor is interruptible (chunked fits + fold planner), so no iteration cap and never the quick model
+        portfolio = [portfolio[0]]
+        info["fallback"] = "single hgb_a: portfolio projected not to fit"
         log("budget: " + info["fallback"])
     info["portfolio_plan"] = [p[0] for p in portfolio]
 

@@ -183,14 +183,8 @@ def _classification(task, prep, budget, emit, log):
     use_lr = n < 2000 or n / C < 100
     folds = make_folds(y, _n_folds(n, A.shape[1], C), "classification")
     n_tr = int(len(y) * (1 - 1 / len(folds)))
-    cap = _iteration_cap(timer, n_tr, len(folds), 1, budget)
-    if cap is not None and cap < params["max_iter"]:
-        info["max_iter_capped_by_budget"] = int(max(cap, 0))
-        params["max_iter"] = max(cap, 1)
-    if cap is not None and cap < 40:
-        log("budget: keeping the quick model (CV not affordable)")
-        info.update(model="quick HistGB (budget)", cv_folds_done=0)
-        return info
+    # (round 3: the old rate-based iteration cap is gone -- the quick fit is now itself truncated, so its rate
+    #  over-estimates the per-iteration cost; every HGB fit is interruptible and the fold planner bounds the CV)
 
     members = {"hgb": (np.full((n, C), np.nan), np.zeros((len(B), C)))}
     if use_et:
@@ -315,14 +309,8 @@ def _regression(task, prep, budget, emit, log):
 
     folds = make_folds(y, _n_folds(n, A.shape[1]), "regression")
     n_tr = int(n * (1 - 1 / len(folds)))
-    cap = _iteration_cap(timer, n_tr, len(folds), len(transforms), budget)
-    if cap is not None and cap < params["max_iter"]:
-        info["max_iter_capped_by_budget"] = int(max(cap, 0))
-        params["max_iter"] = max(cap, 1)
-    if cap is not None and cap < 40:
-        log("budget: keeping the quick model (CV not affordable)")
-        info.update(model="quick HistGB (budget)", cv_folds_done=0)
-        return info
+    # (round 3: the old rate-based iteration cap is gone -- the quick fit is now itself truncated, so its rate
+    #  over-estimates the per-iteration cost; every HGB fit is interruptible and the fold planner bounds the CV)
 
     oof = {t: np.full(n, np.nan) for t in transforms}
     test = {t: np.zeros(len(B)) for t in transforms}
