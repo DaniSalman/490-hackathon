@@ -354,7 +354,7 @@ def _supervised(task, prep, budget, emit, log):
     t0 = time.perf_counter()
     H = HistGradientBoostingClassifier if clf else HistGradientBoostingRegressor
     qm, _ = fit_hgb_anytime(H(max_iter=q_iters, learning_rate=0.1, categorical_features=qmask, random_state=SEED,
-                              **feats.wide), Xq, np.log1p(y[qi]) if log_rule else y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+                              **feats.wide), Xq, np.log1p(y[qi]) if log_rule else y[qi], time.perf_counter() + QUICK_SHARE * budget.total)
     timer.observe("hgb", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     q_test = _predict(qm, Xqt, clf, C, log_rule)
     emit(classes[np.argmax(q_test, 1)] if clf else _clip(q_test, y), "quick_hgb")

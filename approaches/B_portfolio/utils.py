@@ -250,14 +250,17 @@ class FitTimer:
 SLOW_CPU_SAFETY = 2.0   # cost projections assume a CPU up to 2x slower than the one that measured them
 
 
-def fit_hgb_anytime(est, X, y, deadline=None, first_chunk=50):
-    """Fit a HistGradientBoosting model in growing warm-start chunks (50, 100, 200, ... iterations) and stop
+def fit_hgb_anytime(est, X, y, deadline=None, first_chunk=None):
+    """Fit a HistGradientBoosting model in growing warm-start chunks (target/4, then doubling) and stop
     before the chunk that is projected to cross `deadline` (time.perf_counter() value).
 
     Without a deadline hit the result is identical to a single fit (same seed, same early stopping).
     Returns (estimator, truncated: bool).
     """
     target = int(est.get_params()["max_iter"])
+    # first chunk = a quarter of the iterations: an early-stopped fit usually ends inside it (one call; every
+    # call re-bins the data, which is costly with class weights), the rest is interruptible
+    first_chunk = first_chunk or max(25, target // 4)
     if deadline is None or target <= first_chunk:
         est.fit(X, y)
         return est, False
@@ -270,8 +273,13 @@ def fit_hgb_anytime(est, X, y, deadline=None, first_chunk=50):
         cur = int(est.max_iter)
         if est.n_iter_ < cur or cur >= target:          # early-stopped or complete
             break
-        nxt = min(target, cur * 2)
         per_iter = dt / max(1, cur - prev_iters)
+        # if the whole remainder fits the deadline (with slow-CPU safety), finish it in ONE call: chunking
+        # re-bins the data on every call, so the common case costs only one extra call
+        if time.perf_counter() + SLOW_CPU_SAFETY * per_iter * (target - cur) <= deadline:
+            nxt = target
+        else:
+            nxt = min(target, cur * 2)
         if time.perf_counter() + SLOW_CPU_SAFETY * per_iter * (nxt - cur) > deadline:
             truncated = True
             break

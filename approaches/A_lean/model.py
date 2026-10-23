@@ -175,7 +175,7 @@ def _classification(task, prep, budget, emit, log):
     t0 = time.perf_counter()
     q_iters = QUICK_ITERS if C == 2 else max(30, QUICK_ITERS * 2 // C)    # multiclass: C trees per iteration
     qp = dict(params, max_iter=q_iters, learning_rate=0.1, early_stopping=False)
-    qm, _ = fit_hgb_anytime(HistGradientBoostingClassifier(**qp), A[qi], y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+    qm, _ = fit_hgb_anytime(HistGradientBoostingClassifier(**qp), A[qi], y[qi], time.perf_counter() + QUICK_SHARE * budget.total)
     timer.observe("hgb", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     emit(classes[np.argmax(align_proba(qm, qm.predict_proba(B), C), 1)], "quick_hgb")
 
@@ -302,7 +302,7 @@ def _regression(task, prep, budget, emit, log):
     q_log = "log1p" in transforms
     qm, _ = fit_hgb_anytime(HistGradientBoostingRegressor(**dict(params, max_iter=QUICK_ITERS, learning_rate=0.1,
                                                                  early_stopping=False)),
-                            A[qi], np.log1p(y[qi]) if q_log else y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+                            A[qi], np.log1p(y[qi]) if q_log else y[qi], time.perf_counter() + QUICK_SHARE * budget.total)
     timer.observe("hgb", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     qp = qm.predict(B)
     emit(_clip(np.expm1(qp) if q_log else qp, y), "quick_hgb")

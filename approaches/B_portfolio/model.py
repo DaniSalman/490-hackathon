@@ -219,7 +219,7 @@ def _supervised(task, prep, budget, emit, log):
     qm = H(max_iter=q_iters, learning_rate=0.1, categorical_features=mask if mask.any() else None,
            random_state=SEED, **({"class_weight": cw} if cw else {}))
     q_log = "log1p" in transforms
-    qm, _ = fit_hgb_anytime(qm, A[qi], np.log1p(y[qi]) if q_log else y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+    qm, _ = fit_hgb_anytime(qm, A[qi], np.log1p(y[qi]) if q_log else y[qi], time.perf_counter() + QUICK_SHARE * budget.total)
     timer = FitTimer()
     timer.observe("hgb_iter", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     if clf:
