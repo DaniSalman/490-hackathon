@@ -21,12 +21,13 @@ import numpy as np
 
 from cleaning import (encode_classes, encode_regression_target, max_encoded_features, numeric_dense, onehot_encode,
                       ordinal_encode, prepare)
-from utils import (SEED, FitTimer, align_proba, cap_cat_codes, choose_k_silhouette, ensure_k_labels, get_n_jobs,
+from utils import (SEED, SLOW_CPU_SAFETY, FoldPlanner, finalize_labels, fit_hgb_anytime, FitTimer, align_proba, cap_cat_codes, choose_k_silhouette, ensure_k_labels, get_n_jobs,
                    hgb_wide_params, log_loss, macro_f1, make_folds, r2, relabel_contiguous, rmse, subsample_idx,
                    tune_class_weights)
 
 warnings.filterwarnings("ignore")
 RESERVE = 5.0
+QUICK_SHARE = 0.125   # the quick (anytime) model must finish within 1/8 of the budget (stops between chunks)
 MIN_GAIN = 0.002       # stop adding candidates when the ensemble OOF score improves less than this
 CORE = 3               # candidates always evaluated before the stopping rule applies
 
@@ -105,7 +106,7 @@ def _capped_balanced(counts, cap=25.0):
     return {int(c): float(w[c]) for c in np.where(present)[0]}
 
 
-def _portfolio(kind, n, p_lin, p_tree, cw, nj, heavy=False):
+def _portfolio(kind, n, p_lin, p_tree, cw, nj, heavy=False, n_classes=2):
     """Deterministic list of (name, view, factory, relative_cost), decided by data size/shape only.
 
     heavy (work n x p x classes > HEAVY_WORK): only the core candidates (hgb_a, linear, ExtraTrees, hgb_b)."""
@@ -117,6 +118,7 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj, heavy=False):
     H = HistGradientBoostingClassifier if clf else HistGradientBoostingRegressor
     extra = {"class_weight": cw} if (clf and cw) else {}
     small, large = n < 1000, n > 10000
+    many = clf and n_classes >= MANY_CLASSES
     hgb_a = (dict(learning_rate=0.05, max_iter=250, max_leaf_nodes=15, min_samples_leaf=max(5, n // 60),
                   l2_regularization=1.0, early_stopping=False) if small else
              dict(learning_rate=0.1, max_iter=600, max_leaf_nodes=31, min_samples_leaf=20, l2_regularization=0.5,
@@ -131,6 +133,9 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj, heavy=False):
             hgb_b["max_features"] = 0.7
     except TypeError:
         pass
+    if many:   # one tree per class per iteration: learn faster, fewer iterations (sklearn default lr 0.1)
+        hgb_a.update(max_iter=100, n_iter_no_change=20)
+        hgb_b.update(learning_rate=0.1, max_iter=100, n_iter_no_change=20)
     wide = hgb_wide_params(p_tree)
     hgb_a.update(wide)
     hgb_b.update(wide)
@@ -169,6 +174,7 @@ def _portfolio(kind, n, p_lin, p_tree, cw, nj, heavy=False):
 
 
 LINEAR_MEMBERS = ("ridge", "logreg")
+MANY_CLASSES = 10        # >= 10 classes: fast HGB configs and 3 folds (cost = folds x classes trees per iteration)
 HEAVY_CELLS = 8e5        # size class: n x tree-features above this -> 3 folds + core portfolio (wide/large tables)
 LOG_TOLERANCE = 0.005    # B2: keep only log1p members when log1p hgb_a is within this OOF R2 of raw
 LOG_ENSEMBLE_TOLERANCE = 0.01   # B2: log-only ensemble accepted within 0.01 OOF R2 (RMSLE safety, Seoul -0.007)
@@ -213,9 +219,9 @@ def _supervised(task, prep, budget, emit, log):
     qm = H(max_iter=q_iters, learning_rate=0.1, categorical_features=mask if mask.any() else None,
            random_state=SEED, **({"class_weight": cw} if cw else {}))
     q_log = "log1p" in transforms
-    qm.fit(A[qi], np.log1p(y[qi]) if q_log else y[qi])
+    qm, _ = fit_hgb_anytime(qm, A[qi], np.log1p(y[qi]) if q_log else y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
     timer = FitTimer()
-    timer.observe("hgb_iter", len(qi), q_iters, time.perf_counter() - t0)
+    timer.observe("hgb_iter", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     if clf:
         emit(classes[np.argmax(align_proba(qm, qm.predict_proba(B), C), 1)], "quick_hgb")
     else:
@@ -223,10 +229,10 @@ def _supervised(task, prep, budget, emit, log):
         emit(_clip(np.expm1(np.clip(qp, None, 60)) if q_log else qp, y), "quick_hgb")
 
     work = n * A.shape[1]
-    heavy = work > HEAVY_CELLS
-    folds = make_folds(y, 3 if (heavy or n > 30000) else 5, task.task_type)
+    heavy = work > HEAVY_CELLS or (clf and C >= MANY_CLASSES)   # many classes: core portfolio (per-class cost)
+    folds = make_folds(y, 3 if (heavy or n > 30000 or (clf and C >= MANY_CLASSES)) else 5, task.task_type)
     p_lin = views.linear()[0].shape[1]
-    portfolio = _portfolio(task.task_type, n, p_lin, A.shape[1], cw, nj, heavy)
+    portfolio = _portfolio(task.task_type, n, p_lin, A.shape[1], cw, nj, heavy, C or 0)
     info = {"candidates": [], "transforms_tried": transforms, "size_class": "heavy" if heavy else "normal",
             "work": int(work)}
     # B1 affordability (safety only): if the portfolio is projected not to fit, fall back to the FULL single
@@ -252,11 +258,21 @@ def _supervised(task, prep, budget, emit, log):
             break
         for tf in (transforms if name == "hgb_a" else [best_tf]):
             est = (base_cost or 0) * rel
+            if clf and C > 2 and view != "tree":
+                # HistGB grows one tree per class per iteration; forests / linear / kNN fit all classes at
+                # once, so their cost relative to the HGB anchor shrinks by the number of classes
+                est /= C
             if results and budget.remaining() - RESERVE < est * 1.2:      # safety abort only
                 log(f"safety skip {name}: est {est:.1f}s > remaining {budget.remaining():.1f}s")
                 info["candidates"].append({"model": name, "skipped": "budget_safety"})
                 continue
-            res = _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log)
+            planner = FoldPlanner(len(folds), budget, RESERVE) if not results else None
+            res = _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log, planner)
+            if res is not None and planner is not None and res["folds_done"] < len(folds):
+                info["folds_reduced"] = "%d -> %d (measured anchor fold time x%.0f safety)" % (
+                    len(folds), res["folds_done"], SLOW_CPU_SAFETY)
+                folds = folds[:res["folds_done"]]
+            used = np.concatenate([va for _, va in folds])
             if res is None:
                 info["candidates"].append({"model": name, "skipped": "aborted_budget_safety"})
                 continue
@@ -278,7 +294,7 @@ def _supervised(task, prep, budget, emit, log):
                 best_tf = "log1p"
         n_models = len({r["name"].split("[")[0] for r in results})
         if n_models >= CORE and results:
-            _, s_new = _caruana(results, y, clf, C)
+            _, s_new = _caruana(_on(results, used), y[used], clf, C)
             if s_new - ens_score < MIN_GAIN and n_models > CORE:
                 stopped = f"after {name}: ensemble gain {s_new - ens_score:.4f} < {MIN_GAIN}"
                 log("stop: " + stopped)
@@ -289,20 +305,21 @@ def _supervised(task, prep, budget, emit, log):
         info.update(model="quick HistGB (no candidate finished)")
         return info
 
-    weights, ens_all = _caruana(results, y, clf, C)
+    yu = y[used]
+    weights, ens_all = _caruana(_on(results, used), yu, clf, C)
     if not clf and "log1p" in transforms:
         # B2 (RMSLE safety, decision-level tie-break): if the ensemble of log-target members only is within
         # LOG_ENSEMBLE_TOLERANCE OOF R2 of the unrestricted ensemble, use it (same R2, much better relative error)
         log_res = [r for r in results if r["tf"] == "log1p"]
         if log_res and len(log_res) < len(results):
-            w_log, ens_log = _caruana(log_res, y, clf, C)
+            w_log, ens_log = _caruana(_on(log_res, used), yu, clf, C)
             info["log_only_ensemble"] = {"oof_r2_all": round(ens_all, 5), "oof_r2_log_only": round(ens_log, 5)}
             if ens_log >= ens_all - LOG_ENSEMBLE_TOLERANCE:
                 results, weights = log_res, w_log
                 info["log_only_ensemble"]["chosen"] = True
     info["ensemble_weights"] = {results[i]["name"]: round(w, 4) for i, w in enumerate(weights) if w > 0}
     info["model"] = "CaruanaEnsemble(" + ", ".join(f"{k}:{v}" for k, v in info["ensemble_weights"].items()) + ")"
-    oof = sum(w * results[i]["oof"] for i, w in enumerate(weights) if w > 0)
+    oof = sum(w * results[i]["oof"][used] for i, w in enumerate(weights) if w > 0)
     test = sum(w * results[i]["test"] for i, w in enumerate(weights) if w > 0)
     if not clf:
         # B3: on test rows outside the training feature range a linear member is CAPPED to within a factor
@@ -325,21 +342,28 @@ def _supervised(task, prep, budget, emit, log):
             test = np.where(ood, capped, test)
     if clf:
         wcls = np.ones(C)
-        wt, f0, f1 = tune_class_weights(oof, y, C)
+        wt, f0, f1 = tune_class_weights(oof, yu, C)
         if f1 - f0 > 0.003:
             wcls = wt
         info.update(oof_macro_f1=round(max(f0, f1) if f1 - f0 > 0.003 else f0, 5),
-                    oof_accuracy=round(float(np.mean(np.argmax(oof * wcls, 1) == y)), 5),
+                    oof_accuracy=round(float(np.mean(np.argmax(oof * wcls, 1) == yu)), 5),
                     class_weights_decision=[round(float(v), 4) for v in wcls], n_classes=int(C),
                     imbalance_ratio=float(imb))
         emit(classes[np.argmax(test * wcls, 1)], "ensemble")
     else:
-        info.update(oof_rmse=round(rmse(y, oof), 6), oof_r2=round(r2(y, oof), 6))
+        info.update(oof_rmse=round(rmse(yu, oof), 6), oof_r2=round(r2(yu, oof), 6))
         emit(_clip(test, y), "ensemble")
     return info
 
 
-def _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log):
+def _on(results, used):
+    return [dict(r, oof=r["oof"][used]) for r in results]
+
+
+def _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log, planner=None):
+    """CV of one candidate on the shared folds. HistGB fits run in warm-start chunks with a clock check between
+    chunks (M1c): the anchor (planner given) keeps a truncated fit and may complete fewer folds; any other
+    candidate whose fit would cross its deadline is aborted -- the watchdog is never needed."""
     if view == "tree":
         A, B, mask = views.tree()
         m_arg = mask if mask.any() else None
@@ -351,30 +375,55 @@ def _run_cv(name, view, make, views, y, folds, clf, C, tf, budget, log):
     oof = np.zeros((n, C)) if clf else np.zeros(n)
     test = np.zeros((len(B), C)) if clf else np.zeros(len(B))
     t0 = time.perf_counter()
+    done = 0
     for i, (tr, va) in enumerate(folds):
-        if i:
+        if planner is not None and not planner.more():
+            break
+        if i and planner is None:
             per = (time.perf_counter() - t0) / i
             if budget.remaining() - RESERVE < per * 1.1:                 # per-model safety check
                 log(f"abort {name}: budget")
                 return None
+        t_f = time.perf_counter()
+        dl = planner.deadline() if planner is not None else time.perf_counter() + max(
+            0.5, (budget.remaining() - RESERVE) / (len(folds) - i))
         m = make(m_arg)
+        hgb = "HistGradientBoosting" in type(m).__name__
         if clf:
-            m.fit(A[tr], y[tr])
+            if hgb:
+                m, cut = fit_hgb_anytime(m, A[tr], y[tr], dl)
+                if cut and planner is None:
+                    log(f"abort {name}: fit would cross its deadline")
+                    return None
+            else:
+                m.fit(A[tr], y[tr])
             oof[va] = align_proba(m, m.predict_proba(A[va]), C)
             test += align_proba(m, m.predict_proba(B), C)
         else:
             yt = np.log1p(y[tr]) if tf == "log1p" else y[tr]
-            m.fit(A[tr], yt)
+            if hgb:
+                m, cut = fit_hgb_anytime(m, A[tr], yt, dl)
+                if cut and planner is None:
+                    log(f"abort {name}: fit would cross its deadline")
+                    return None
+            else:
+                m.fit(A[tr], yt)
             pv, pt = m.predict(A[va]), m.predict(B)
             if linear:   # no extrapolation beyond the training target range (in log space when log1p)
                 pv, pt = np.clip(pv, yt.min(), yt.max()), np.clip(pt, yt.min(), yt.max())
             if tf == "log1p":
                 pv, pt = np.expm1(np.clip(pv, None, 60)), np.expm1(np.clip(pt, None, 60))
             oof[va], test = pv, test + pt
-    test /= len(folds)
-    sc = _score(y, oof, clf, C)
+        done += 1
+        if planner is not None:
+            planner.fold_done(time.perf_counter() - t_f)
+    if done == 0:
+        return None
+    test /= done
+    idx = np.concatenate([va for _, va in folds[:done]])
+    sc = _score(y[idx], oof[idx], clf, C)
     return {"name": name + ("" if tf == "raw" else f"[{tf}]"), "oof": oof, "test": test, "score": sc,
-            "seconds": time.perf_counter() - t0, "tf": tf}
+            "seconds": time.perf_counter() - t0, "tf": tf, "folds_done": done}
 
 
 def _score(y, oof, clf, C):
@@ -468,7 +517,7 @@ def _clustering(task, prep, budget, emit, log):
     k = int(min(k, n))
     info["k"] = k
     km0 = KMeans(k, n_init=20 if n <= 20000 else 5, random_state=SEED).fit(Xg)
-    emit(ensure_k_labels(km0.labels_, Xg, k)[-n_pred:], "kmeans_anchor")
+    emit(finalize_labels(km0.labels_, Xg, k, n_pred), "kmeans_anchor")
 
     # 1) relevance filter shared by every view (+ a sparse-weighted view)
     sparse_view = None
@@ -522,7 +571,7 @@ def _clustering(task, prep, budget, emit, log):
             except Exception as e:  # noqa: BLE001
                 info["candidates"].append({"name": f"{algo}|{vname}", "error": repr(e)[:120]})
         if vname == "logstd" and cands:
-            emit(ensure_k_labels(cands[0][1], X0, k)[-n_pred:], "kmeans_filtered")
+            emit(finalize_labels(cands[0][1], X0, k, n_pred), "kmeans_filtered")
     # 2) consensus: medoid partition by mean ARI to all others
     m = len(cands)
     if m == 0:
@@ -547,6 +596,6 @@ def _clustering(task, prep, budget, emit, log):
         pick = 0
     name, labels = cands[pick]
     info["model"] = f"consensus_medoid:{name}" + (" (relevance-filtered)" if "dropped_irrelevant" in info else "")
-    labels = ensure_k_labels(labels, X0, k)
-    emit(labels[-n_pred:], "consensus")
+    labels = finalize_labels(labels, X0, k, n_pred)
+    emit(labels, "consensus")
     return info
