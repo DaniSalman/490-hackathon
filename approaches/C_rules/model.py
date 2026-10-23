@@ -36,13 +36,15 @@ import numpy as np
 
 from cleaning import (encode_classes, encode_regression_target, max_encoded_features, numeric_dense, onehot_encode,
                       ordinal_encode, prepare)
-from utils import (SEED, FitTimer, align_proba, choose_k_silhouette, ensure_k_labels, get_n_jobs, hgb_wide_params, cap_cat_codes, macro_f1,
+from utils import (SEED, SLOW_CPU_SAFETY, FoldPlanner, finalize_labels, fit_hgb_anytime, FitTimer, align_proba, choose_k_silhouette, ensure_k_labels, get_n_jobs, hgb_wide_params, cap_cat_codes, macro_f1,
                    make_folds, r2, subsample_idx,
                    relabel_contiguous, rmse, tune_class_weights)
 
 warnings.filterwarnings("ignore")
 RESERVE = 4.0
+QUICK_SHARE = 0.125   # the quick (anytime) model must finish within 1/8 of the budget (stops between chunks)
 LOG_LOSS_MAX = 0.005       # C3: revert the log1p rule when the probe shows it losing more R2 than this
+MANY_CLASSES = 10          # M1: >= 10 classes -> fast HGB + 3 folds
 HEAVY_WORK = 5e6           # C4: n x p x classes above this -> 3 folds
 REG_LINEAR_MARGIN = 0.01   # regression: linear must beat the quick tree by this R2 margin to be blended
 HIGH_CARD = 30
@@ -255,6 +257,11 @@ def decide(mf, probe):
                     plan["rules_fired"].append(f"probe: log1p R2 {r_log:.4f} < raw {r_raw:.4f} - {LOG_LOSS_MAX} -> raw target")
     work = n * mf["p_tree"] * max(1, mf.get("n_classes", 1))
     plan["folds"] = 5 if (n <= 20000 and work <= HEAVY_WORK) else 3
+    if mf.get("n_classes", 0) >= MANY_CLASSES:
+        # HistGB grows one tree per class per iteration -> fast configuration and 3 folds (M1)
+        plan["fast_hgb"] = True
+        plan["folds"] = 3
+        plan["rules_fired"].append(f"n_classes>={MANY_CLASSES} -> fast HGB (lr 0.1, 100 iterations) + 3 folds")
     if work > HEAVY_WORK:
         plan["rules_fired"].append(f"n*p*classes={work:.2g} > {HEAVY_WORK:.0e} -> 3 folds (time headroom)")
     plan["refit_full"] = True
@@ -280,6 +287,9 @@ def _make(kind, clf, n, plan, counts, nj, n_iter=None, wide=None, it_cap=None):
     cw = _capped_balanced(counts) if (clf and plan.get("balanced")) else None
     if kind == "hgb":
         prm = _hgb_params(n)
+        if plan.get("fast_hgb"):
+            prm = dict(learning_rate=0.1, max_iter=100, max_leaf_nodes=31, min_samples_leaf=20,
+                       l2_regularization=0.0, early_stopping=n >= 1000, validation_fraction=0.12, n_iter_no_change=20)
         prm.update(wide or {})
         if n_iter:
             prm.update(max_iter=int(n_iter), early_stopping=False)
@@ -343,14 +353,15 @@ def _supervised(task, prep, budget, emit, log):
     q_iters = 100 if (not clf or C == 2) else max(30, 200 // C)
     t0 = time.perf_counter()
     H = HistGradientBoostingClassifier if clf else HistGradientBoostingRegressor
-    qm = H(max_iter=q_iters, learning_rate=0.1, categorical_features=qmask, random_state=SEED,
-           **feats.wide).fit(Xq, np.log1p(y[qi]) if log_rule else y[qi])
-    timer.observe("hgb", len(qi), q_iters, time.perf_counter() - t0)
+    qm, _ = fit_hgb_anytime(H(max_iter=q_iters, learning_rate=0.1, categorical_features=qmask, random_state=SEED,
+                              **feats.wide), Xq, np.log1p(y[qi]) if log_rule else y[qi], time.perf_counter() + QUICK_SHARE * budget.total, first_chunk=10)
+    timer.observe("hgb", len(qi), max(1, qm.n_iter_), time.perf_counter() - t0)
     q_test = _predict(qm, Xqt, clf, C, log_rule)
     emit(classes[np.argmax(q_test, 1)] if clf else _clip(q_test, y), "quick_hgb")
 
     probe = None
-    many = clf and mf["n_classes"] >= 8 and n / mf["n_classes"] < 150
+    many = clf and (mf["n_classes"] >= 8 and n / mf["n_classes"] < 150 or mf["n_classes"] >= MANY_CLASSES)
+    # (the probe's HGB also grows one tree per class per iteration: no probe for >= MANY_CLASSES classes)
     wide = mf["p_linear"] > 150 and n < 10 * mf["p_linear"]
     if n >= 400 and not many and (not wide or not clf) and budget.has(RESERVE + 8):
         lc = {} if log_rule else None
@@ -384,9 +395,14 @@ def _supervised(task, prep, budget, emit, log):
     test_bag = {k: 0.0 for k, _ in plan["models"]}
     iters = {k: [] for k, _ in plan["models"]}
     last = {}
-    done = 0
+    done, truncated = 0, 0
+    planner = FoldPlanner(len(folds), budget, RESERVE)
     for tr, va in folds:
+        if not planner.more():
+            log(f"budget: CV reduced to {planner.planned} folds (measured fold time x{SLOW_CPU_SAFETY} safety)")
+            break
         fold_ok = True
+        t_fold, dl = time.perf_counter(), planner.deadline()
         for kind, _ in plan["models"]:
             # per-model budget check inside the fold loop (C2/S2c)
             if kind in last and budget.remaining() - RESERVE < 1.3 * last[kind]:
@@ -395,7 +411,11 @@ def _supervised(task, prep, budget, emit, log):
             t1 = time.perf_counter()
             Xtr, Xva, Xte, mask = feats.view(VIEW[kind], tr, y[tr], va)
             mk = _make(kind, clf, len(tr), plan, counts, nj, wide=feats.wide, it_cap=it_cap)
-            m = mk(mask).fit(Xtr, yt[tr])
+            if kind == "hgb":     # warm-start chunks, stops before crossing the fold deadline (M1)
+                m, cut = fit_hgb_anytime(mk(mask), Xtr, yt[tr], dl)
+                truncated += int(cut)
+            else:
+                m = mk(mask).fit(Xtr, yt[tr])
             clip = (yt[tr].min(), yt[tr].max()) if (kind == "linear" and not clf) else None
             oof[kind][va] = _predict(m, Xva, clf, C, log_t, clip)
             test_bag[kind] = test_bag[kind] + _predict(m, Xte, clf, C, log_t, clip)
@@ -406,10 +426,11 @@ def _supervised(task, prep, budget, emit, log):
             log("budget: stopping CV early")
             break
         done += 1
+        planner.fold_done(time.perf_counter() - t_fold)
         if done == 1:
             tb = sum(w * test_bag[k] for k, w in plan["models"])
             emit(classes[np.argmax(tb, 1)] if clf else _clip(tb, y), "fold1")
-    info["cv_folds_done"] = done
+    info.update(cv_folds_done=done, hgb_fits_truncated=truncated, folds_reduced_from=planner.reduced_from)
     if done == 0:
         info["model"] = "quick HistGB (budget)"
         return info
@@ -424,7 +445,11 @@ def _supervised(task, prep, budget, emit, log):
         for kind, w in plan["models"]:
             n_it = int(np.median(iters[kind]) * 1.1) + 1 if iters[kind] and kind == "hgb" and n >= 1000 else None
             Xtr, _, Xte, mask = feats.view(VIEW[kind], all_idx, y, None)
-            m = _make(kind, clf, n, plan, counts, nj, n_iter=n_it, wide=feats.wide, it_cap=it_cap)(mask).fit(Xtr, yt)
+            mk = _make(kind, clf, n, plan, counts, nj, n_iter=n_it, wide=feats.wide, it_cap=it_cap)
+            if kind == "hgb":
+                m, _ = fit_hgb_anytime(mk(mask), Xtr, yt, time.perf_counter() + max(0.5, budget.remaining() - RESERVE))
+            else:
+                m = mk(mask).fit(Xtr, yt)
             clip = (yt.min(), yt.max()) if (kind == "linear" and not clf) else None
             refit = refit + w * _predict(m, Xte, clf, C, log_t, clip)
         test_p = refit
@@ -489,7 +514,7 @@ def _clustering(task, prep, budget, emit, log):
     info = {"k": k, "n_features_in": int(p), "rules_fired": []}
 
     base = KMeans(k, n_init=10, random_state=SEED).fit_predict(X)
-    emit(ensure_k_labels(base, X, k)[-n_pred:], "kmeans_all_features")
+    emit(finalize_labels(base, X, k, n_pred), "kmeans_all_features")
     if k < 2 or n < 10:
         info["model"] = "kmeans"
         return info
@@ -528,9 +553,9 @@ def _clustering(task, prep, budget, emit, log):
     info["rules_fired"].append(f"candidates gated by size/columns: {include}")
     cands = FW.candidate_partitions(Xs, num_cols, k, budget, RESERVE, include=include)
     if "kmeans" in cands:
-        emit(ensure_k_labels(cands["kmeans"], Xs, k)[-n_pred:], "kmeans_" + space)
+        emit(finalize_labels(cands["kmeans"], Xs, k, n_pred), "kmeans_" + space)
     pick, scores = FW.agreement_medoid(cands)
     info.update(candidates=list(cands), agreement=scores, model=f"{pick} ({space})")
-    labels = ensure_k_labels(relabel_contiguous(cands[pick]), Xs, k)
-    emit(labels[-n_pred:], "final")
+    labels = finalize_labels(relabel_contiguous(cands[pick]), Xs, k, n_pred)
+    emit(labels, "final")
     return info
