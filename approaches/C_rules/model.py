@@ -386,10 +386,7 @@ def _supervised(task, prep, budget, emit, log):
         it_cap = int(3.0 * per_fold / (timer.rate["hgb"] * n_tr))
         if it_cap < _hgb_params(n_tr)["max_iter"]:
             info["max_iter_capped_by_budget"] = int(max(it_cap, 0))
-        if it_cap < 40:
-            log("budget: keeping the quick model (CV not affordable)")
-            info["model"] = "quick HistGB (budget)"
-            return info
+        it_cap = None   # round 3: fits are interruptible; the truncated quick fit over-estimates the rate
     all_idx = np.arange(n)
     oof = {k: (np.zeros((n, C)) if clf else np.zeros(n)) for k, _ in plan["models"]}
     test_bag = {k: 0.0 for k, _ in plan["models"]}
@@ -529,10 +526,13 @@ def _clustering(task, prep, budget, emit, log):
         info.update(sparsity_s=r["s"], feature_weights={names[g]: round(float(w[g]), 4) for g in np.argsort(-w)[:30]},
                     relevance_tests={names[g]: v for g, v in tests.items()})
         if drop.any():
-            w_used = np.where(drop, 0.0, w)
-            Xs = FW.weighted(X, groups, w_used / w_used.max())
-            space = "sparse-weighted"
-            info["rules_fired"].append(f"confirmed irrelevant {[names[g] for g in np.where(drop)[0]]} -> soft-weighted space")
+            # Q2: confirmed-irrelevant groups are REMOVED and the kept features keep equal weight. The sparse
+            # weights rank relevance for the test, but as distance weights they down-weight moderately
+            # informative features (dermatology clinical grades).
+            w_used = np.where(drop, 0.0, 1.0)
+            Xs = FW.weighted(X, groups, w_used)
+            space = "relevance-filtered"
+            info["rules_fired"].append(f"confirmed irrelevant {[names[g] for g in np.where(drop)[0]]} -> removed")
         else:
             info["rules_fired"].append("no confirmed irrelevant feature -> unweighted space")
     info["space"] = space
