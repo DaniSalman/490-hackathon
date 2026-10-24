@@ -1,0 +1,4 @@
+approach,probe,status,wall_time,primary
+A_lean,s4_bankchurn_missing,ok,4.133,0.709624
+B_portfolio,s4_bankchurn_missing,ok,8.625,0.712677
+C_rules,s4_bankchurn_missing,ok,4.74,0.711472

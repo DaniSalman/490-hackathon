@@ -19,7 +19,8 @@ rerun_2threads,A_lean,k_satimage,True,1.0
 1thread_vs_2thread,A_lean,r_house16h,True,1.0
 1thread_vs_2thread,A_lean,r_medical,True,1.0
 1thread_vs_2thread,A_lean,r_sulfur,True,1.0
-rerun_2threads,B_portfolio,c_bankchurn,False,0.9196
+rerun_2threads,B_portfolio,c_bankchurn,True,1.0
+rerun_2threads,B_portfolio,k_satimage,True,1.0
 1thread_vs_2thread,B_portfolio,c_bankchurn,True,1.0
 1thread_vs_2thread,B_portfolio,c_miniboone,True,1.0
 1thread_vs_2thread,B_portfolio,c_ozone,False,0.9936908517350158
@@ -38,6 +39,8 @@ rerun_2threads,B_portfolio,c_bankchurn,False,0.9196
 1thread_vs_2thread,B_portfolio,r_house16h,False,0.9945575842696629
 1thread_vs_2thread,B_portfolio,r_medical,True,1.0
 1thread_vs_2thread,B_portfolio,r_sulfur,False,0.9857142857142858
+rerun_2threads,C_rules,c_bankchurn,True,1.0
+rerun_2threads,C_rules,k_satimage,True,1.0
 1thread_vs_2thread,C_rules,c_bankchurn,True,1.0
 1thread_vs_2thread,C_rules,c_miniboone,True,1.0
 1thread_vs_2thread,C_rules,c_ozone,True,1.0
