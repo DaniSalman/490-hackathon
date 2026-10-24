@@ -147,10 +147,52 @@
  },
  "onethread": {
   "A_lean": {
-   "median": 3.62,
-   "max": 3.62,
-   "max_dataset": "c_bankchurn",
-   "n_invalid": 1,
+   "median": 4.13,
+   "max": 17.99,
+   "max_dataset": "c_miniboone",
+   "n_invalid": 0,
+   "n_watchdog": 0,
+   "n_over_40s": 0
+  },
+  "B_portfolio": {
+   "median": 8.57,
+   "max": 33.55,
+   "max_dataset": "r_medical",
+   "n_invalid": 0,
+   "n_watchdog": 0,
+   "n_over_40s": 0
+  },
+  "C_rules": {
+   "median": 4.34,
+   "max": 26.71,
+   "max_dataset": "c_miniboone",
+   "n_invalid": 0,
+   "n_watchdog": 0,
+   "n_over_40s": 0
+  }
+ },
+ "slowdown25": {
+  "A_lean": {
+   "median": 5.81,
+   "max": 8.44,
+   "max_dataset": "r_medical",
+   "n_invalid": 0,
+   "n_watchdog": 0,
+   "n_over_40s": 0
+  },
+  "B_portfolio": {
+   "median": 7.71,
+   "max": 10.85,
+   "max_dataset": "r_medical",
+   "n_invalid": 0,
+   "n_watchdog": 0,
+   "n_over_40s": 0
+  },
+  "C_rules": {
+   "median": 4.98,
+   "max": 9.63,
+   "max_dataset": "c_miniboone",
+   "n_invalid": 0,
    "n_watchdog": 0,
    "n_over_40s": 0
   }
@@ -159,8 +201,32 @@
   {
    "check": "1thread_vs_2thread",
    "approach": "A_lean",
-   "sum": 1,
+   "sum": 17,
+   "count": 18
+  },
+  {
+   "check": "1thread_vs_2thread",
+   "approach": "B_portfolio",
+   "sum": 13,
+   "count": 18
+  },
+  {
+   "check": "1thread_vs_2thread",
+   "approach": "C_rules",
+   "sum": 17,
+   "count": 18
+  },
+  {
+   "check": "rerun_2threads",
+   "approach": "A_lean",
+   "sum": 2,
    "count": 2
+  },
+  {
+   "check": "rerun_2threads",
+   "approach": "B_portfolio",
+   "sum": 0,
+   "count": 1
   }
  ]
 }
