@@ -526,13 +526,12 @@ def _clustering(task, prep, budget, emit, log):
         info.update(sparsity_s=r["s"], feature_weights={names[g]: round(float(w[g]), 4) for g in np.argsort(-w)[:30]},
                     relevance_tests={names[g]: v for g, v in tests.items()})
         if drop.any():
-            # Q2: confirmed-irrelevant groups are REMOVED and the kept features keep equal weight. The sparse
-            # weights rank relevance for the test, but as distance weights they down-weight moderately
-            # informative features (dermatology clinical grades).
-            w_used = np.where(drop, 0.0, 1.0)
-            Xs = FW.weighted(X, groups, w_used)
-            space = "relevance-filtered"
-            info["rules_fired"].append(f"confirmed irrelevant {[names[g] for g in np.where(drop)[0]]} -> removed")
+            # (Q2 -- removing the groups instead of soft weights -- was evaluated in round 3 and reverted: +0.10
+            #  clustering quality but -0.45 total over 54 datasets)
+            w_used = np.where(drop, 0.0, w)
+            Xs = FW.weighted(X, groups, w_used / w_used.max())
+            space = "sparse-weighted"
+            info["rules_fired"].append(f"confirmed irrelevant {[names[g] for g in np.where(drop)[0]]} -> soft-weighted space")
         else:
             info["rules_fired"].append("no confirmed irrelevant feature -> unweighted space")
     info["space"] = space
