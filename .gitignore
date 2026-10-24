@@ -12,3 +12,4 @@ validation/runs/
 validation/*.log
 validation/runs_r2/
 validation/runs_r3/
+validation/runs_r4/
