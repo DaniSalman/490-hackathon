@@ -157,3 +157,12 @@ clustering) + `metadata.json`; imbalance-aware classification metric (we optimis
 regression metric (log1p preferred on ties, in case it is RMSLE), ARI/NMI clustering metric with k given;
 the 60 s limit includes interpreter start-up; only the pinned packages are available; ID-like columns
 carry no signal.
+
+
+## Fix round 3 (docs/09_fix_round3_changelog.md)
+Changes: k labels guaranteed on the predicted rows (train/test clustering); rule n_classes >= 10 -> fast HGB + 3 folds (no probe); chunked, deadline-bounded HGB fits and fold planner; bounded quick model. (Q2 hard-drop clustering was evaluated and reverted.)
+
+All 54 datasets of suites r1-r3 (2 threads, same-session run): total **221.63** (quality 178.20,
+speed 13.44); median / max wall time 4.3 / 28.6 s; 0 watchdog exits.
+A simulated 2.5x slower CPU (`HACK_SLOWDOWN=2.5`) gives 54/54 valid runs and no watchdog exits. The 1-thread maximum is at most
+28 s (c_letter: see docs/09 section 2). Self-check of the worst-case path: `py tools/eval_suite.py run --tag slow --slowdown 2.5`.
