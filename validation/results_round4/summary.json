@@ -1,0 +1,166 @@
+{
+ "scoring": {
+  "quality": "per dataset 85/18 pts x norm, norm = clip((m - trivial) / (1 - trivial), 0, 1); m = macro-F1 / R2 / ARI; trivial = macro-F1 of the majority class on the test set / 0 / 0; crash, timeout or invalid output = 0",
+  "quality_alt": "same but norm_rel = clip((m - trivial) / (best - trivial), 0, 1), best = best of A/B/C and the two sklearn baselines",
+  "profile": "per dataset 10/18 pts x mean of 14 field scores in [0,1] (see profile_fields)",
+  "speed": "per dataset 5/18 pts x f(t) x useful; f(t) = 1 for t <= 5 s, 1 - ln(t/5)/ln(12) for 5 < t < 60, 0 beyond; useful = valid and (norm >= 0.5 or norm >= 0.9 x norm of the sklearn HGB/KMeans baseline)"
+ },
+ "baselines_quality_round4": {
+  "sk_hgb": {
+   "total": 40.939,
+   "classification": 19.021,
+   "regression": 21.917,
+   "clustering": 0.0
+  },
+  "sk_kmeans": {
+   "total": 9.563,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 9.563
+  },
+  "sk_kmeans_raw": {
+   "total": 10.198,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 10.198
+  },
+  "sk_linear": {
+   "total": 33.642,
+   "classification": 17.614,
+   "regression": 16.028,
+   "clustering": 0.0
+  },
+  "trivial": {
+   "total": 0.0,
+   "classification": 0.0,
+   "regression": 0.0,
+   "clustering": 0.0
+  }
+ },
+ "versions_round4": {
+  "HEAD 43699f2": {
+   "A_lean": {
+    "quality": 54.803,
+    "quality_rel": 82.138,
+    "profile": 9.97,
+    "speed": 4.521,
+    "total": 69.295,
+    "per_task_quality": {
+     "classification": 20.736,
+     "regression": 23.002,
+     "clustering": 11.065
+    },
+    "wall_median": 4.39,
+    "wall_max": 14.28,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 55.039,
+    "quality_rel": 82.21,
+    "profile": 9.97,
+    "speed": 4.021,
+    "total": 69.03,
+    "per_task_quality": {
+     "classification": 20.727,
+     "regression": 22.935,
+     "clustering": 11.377
+    },
+    "wall_median": 7.94,
+    "wall_max": 25.83,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 55.038,
+    "quality_rel": 83.185,
+    "profile": 9.97,
+    "speed": 4.418,
+    "total": 69.426,
+    "per_task_quality": {
+     "classification": 20.522,
+     "regression": 23.122,
+     "clustering": 11.394
+    },
+    "wall_median": 4.68,
+    "wall_max": 27.6,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  },
+  "round-2 fix 98f5fe1": {
+   "A_lean": {
+    "quality": 54.888,
+    "quality_rel": 82.219,
+    "profile": 9.97,
+    "speed": 4.399,
+    "total": 69.258,
+    "per_task_quality": {
+     "classification": 20.821,
+     "regression": 23.002,
+     "clustering": 11.065
+    },
+    "wall_median": 4.12,
+    "wall_max": 32.8,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "B_portfolio": {
+    "quality": 54.969,
+    "quality_rel": 82.063,
+    "profile": 9.97,
+    "speed": 3.909,
+    "total": 68.848,
+    "per_task_quality": {
+     "classification": 20.657,
+     "regression": 22.935,
+     "clustering": 11.377
+    },
+    "wall_median": 7.86,
+    "wall_max": 24.8,
+    "statuses": {
+     "ok": 18
+    }
+   },
+   "C_rules": {
+    "quality": 55.123,
+    "quality_rel": 83.241,
+    "profile": 9.97,
+    "speed": 4.285,
+    "total": 69.378,
+    "per_task_quality": {
+     "classification": 20.607,
+     "regression": 23.122,
+     "clustering": 11.394
+    },
+    "wall_median": 4.91,
+    "wall_max": 31.59,
+    "statuses": {
+     "ok": 18
+    }
+   }
+  }
+ },
+ "onethread": {
+  "A_lean": {
+   "median": 3.62,
+   "max": 3.62,
+   "max_dataset": "c_bankchurn",
+   "n_invalid": 1,
+   "n_watchdog": 0,
+   "n_over_40s": 0
+  }
+ },
+ "determinism": [
+  {
+   "check": "1thread_vs_2thread",
+   "approach": "A_lean",
+   "sum": 1,
+   "count": 2
+  }
+ ]
+}

@@ -1,0 +1,3 @@
+check,approach,dataset,identical,frac_rows_equal
+1thread_vs_2thread,A_lean,c_bankchurn,True,1.0
+1thread_vs_2thread,A_lean,c_miniboone,False,0.9697333333333333
