@@ -109,13 +109,26 @@ Every run was a subprocess with 2 threads, a 60 s kill and a warm-up. Metrics:
 
 Scores were converted to the spec's 85 / 10 / 5 points with our own normalisation, explained in `docs/04_validation_report.md` §2.
 
-Mean primary metric over the first 54 datasets (18 per task) for the submitted code, against plain scikit-learn defaults:
+Mean primary metric over the first 54 datasets (18 per task) for the round-2 code (98f5fe1), against plain scikit-learn defaults. Rounds 3 and 4 then made the solvers safer under the time limit while keeping quality (docs/09, docs/10).
 
 | Task | A_lean | B_portfolio | C_rules | Default (HistGB / scaled KMeans) |
 |---|---|---|---|---|
 | Classification macro-F1 | 0.776 | 0.773 | 0.771 | 0.751 |
 | Regression R² | 0.841 | 0.844 | 0.841 | 0.824 |
 | Clustering ARI | 0.613 | 0.614 | 0.612 | 0.470 |
+
+**Final selection** (round 4: 18 unseen datasets; estimated points out of 100 under our scoring model):
+
+| | A_lean | C_rules | B_portfolio |
+|---|---|---|---|
+| Round 4 total | 69.30 | 69.43 | 69.03 |
+| Cumulative over all 72 datasets | **291.10** | 291.06 | 289.88 |
+| Five spec example datasets | **22.05** | 21.88 | 21.46 |
+| Max run time, 2 threads / 1 thread | **14.3 s / 18.0 s** | 27.6 s / 26.7 s | 25.8 s / 33.6 s |
+
+- **Quality:** the three solvers are within noise of each other.
+- **Why A:** it was chosen for the best cumulative and spec-example scores, about twice the time headroom of B and C, and deterministic, always-valid output in all four rounds.
+- **Spec examples with A:** Telco macro-F1 0.727, AI4I 0.872, House Prices R² 0.895, Bike Sharing R² 0.960, Mall ARI 0.681.
 
 Validity and timing:
 - No crash, timeout or invalid output in any scored run.
